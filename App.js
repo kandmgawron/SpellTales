@@ -16,7 +16,7 @@ import MenuDropdown from './components/MenuDropdown';
 import LoadingScreen from './components/LoadingScreen';
 import ErrorScreen from './components/ErrorScreen';
 import ErrorBoundary from './components/ErrorBoundary';
-import SplashScreen from './components/SplashScreen';
+import CustomSplashScreen from './components/SplashScreen';
 import ProfileScreen from './ProfileScreen';
 import StoryDisplayScreen from './components/StoryDisplayScreen';
 import VisualStoryCreator from './components/VisualStoryCreator';
@@ -731,7 +731,7 @@ export default function App() {
   if (isLoading || !fontsLoaded) {
     return (
       <ErrorBoundary>
-        <SplashScreen />
+        <CustomSplashScreen />
       </ErrorBoundary>
     );
   }

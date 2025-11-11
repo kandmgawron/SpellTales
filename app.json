@@ -1,38 +1,27 @@
 {
   "expo": {
-    "name": "Bedtime Stories",
-    "slug": "BedtimeStoriesApp",
+    "name": "SpellTales",
+    "slug": "spelltales",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash_logo.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#000000"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.kategawron.bedtimestories",
-      "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false,
-        "NSUserTrackingUsageDescription": "This app uses tracking to provide personalized ad experiences for free users.",
-        "SKAdNetworkItems": [],
-        "GADApplicationIdentifier": "ca-app-pub-6556278678527690/6738379335"
-      },
-      "config": {
-        "usesNonExemptEncryption": false,
-        "googleMobileAdsAppId": "ca-app-pub-6556278678527690/6738379335"
-      }
+      "bundleIdentifier": "com.kategawron.spelltales"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#000000"
       },
-      "edgeToEdgeEnabled": true,
-      "package": "com.kategawron.bedtimestories"
+      "package": "com.kategawron.spelltales"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -52,10 +41,10 @@
       "education",
       "learning"
     ],
-    "primaryColor": "#4CAF50",
-    "backgroundColor": "#ffffff",
     "plugins": [
-      "react-native-google-mobile-ads"
+      "expo-asset",
+      "expo-secure-store",
+      "expo-font"
     ]
   }
 }

@@ -5,23 +5,13 @@ class RateLimiter {
 
   canMakeRequest(key, maxRequests = 10, windowMs = 60000) {
     const now = Date.now();
-    const windowStart = now - windowMs;
+    const requests = this.requests.get(key) || [];
+    const validRequests = requests.filter(time => time > now - windowMs);
     
-    if (!this.requests.has(key)) {
-      this.requests.set(key, []);
-    }
-    
-    const userRequests = this.requests.get(key);
-    
-    // Remove old requests outside the window
-    const validRequests = userRequests.filter(time => time > windowStart);
-    this.requests.set(key, validRequests);
-    
-    if (validRequests.length >= maxRequests) {
-      return false;
-    }
+    if (validRequests.length >= maxRequests) return false;
     
     validRequests.push(now);
+    this.requests.set(key, validRequests);
     return true;
   }
 }
