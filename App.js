@@ -110,7 +110,46 @@ export default function App() {
     }
   };
 
+  const [userWords, setUserWords] = useState([]);
+
   // Get current age rating (from profile or global)
+  const loadUserWords = async () => {
+    if (!userEmail || isGuestMode) {
+      console.log('loadUserWords: No userEmail or guest mode, returning empty array');
+      return [];
+    }
+    
+    console.log('loadUserWords: Loading words for', userEmail);
+    
+    try {
+      const response = await fetch(process.env.EXPO_PUBLIC_LAMBDA_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'get_user_words',
+          userEmail: userEmail
+        })
+      });
+
+      const result = await response.json();
+      console.log('loadUserWords: API response', result);
+      
+      if (result.success && result.words) {
+        console.log('loadUserWords: Returning words', result.words);
+        setUserWords(result.words); // Update state for other uses
+        return result.words;
+      } else {
+        console.log('loadUserWords: No words found, returning empty array');
+        setUserWords([]);
+        return [];
+      }
+    } catch (error) {
+      console.log('Error loading user words:', error);
+      setUserWords([]);
+      return [];
+    }
+  };
+
   const getCurrentAgeRating = () => {
     return currentProfile ? currentProfile.ageRating : currentAgeRating;
   };
@@ -226,6 +265,7 @@ export default function App() {
       setSubscriptionStatus(status);
       
       loadLastStory();
+      loadUserWords();
     } catch (error) {
       // Silent fail for auth success
     }
@@ -275,7 +315,7 @@ export default function App() {
         userEmail: userEmail,
         // Use toddler age rating for guest users
         ageRating: isGuestMode ? 'toddlers' : getCurrentAgeRating(),
-        spellingWords: currentProfile?.words || ['cat', 'dog', 'happy']
+        spellingWords: isGuestMode ? [] : (userWords.length > 0 ? userWords : [])
       };
       
       const response = await generateStoryAPI(storyData);
@@ -322,6 +362,20 @@ export default function App() {
   };
 
   const handleVisualStoryGenerate = (character1, character2, keyword1) => {
+    // Map keyword to appropriate genre for better loading message
+    const keywordToGenre = {
+      'Forest': 'adventure',
+      'Castle': 'fairy-tale', 
+      'Ocean': 'adventure',
+      'Space': 'space',
+      'Treasure': 'adventure',
+      'Magic': 'magic'
+    };
+    
+    // Set genre based on keyword for better loading message
+    const mappedGenre = keywordToGenre[keyword1] || 'adventure';
+    setGenre(mappedGenre);
+    
     // Call the unified story creation function directly
     createStory(character1, character2, keyword1);
   };
@@ -367,6 +421,9 @@ export default function App() {
       return;
     }
 
+    // Load user words before generating story
+    const currentUserWords = await loadUserWords();
+
     setIsGenerating(true);
     setGenerationError(null);
     setRetryData({ char1, char2, key1, key2, key3 });
@@ -396,7 +453,16 @@ export default function App() {
         },
         userEmail: userEmail,
         ageRating: isGuestMode ? 'toddlers' : getCurrentAgeRating(),
-        spellingWords: currentProfile?.words || ['cat', 'dog', 'happy']
+        spellingWords: (() => {
+          if (isGuestMode) {
+            console.log('Story generation: Guest mode - no spelling words');
+            return [];
+          }
+          console.log('Story generation: currentUserWords =', currentUserWords);
+          const words = currentUserWords.length > 0 ? currentUserWords : [];
+          console.log('Story generation: using words =', words);
+          return words;
+        })()
       };
       
       const response = await generateStoryAPI(storyData);
@@ -631,6 +697,16 @@ export default function App() {
     setCurrentScreen('stories'); // Return to home
   };
 
+  const shouldShowReset = () => {
+    return character1.trim() || character2.trim() || keyword1.trim() || genre !== 'random';
+  };
+
+  const handleGoHome = () => {
+    setStory('');
+    setGenre('random');
+    setCurrentScreen('stories');
+  };
+
   const resetStory = () => {
     setStory('');
     setCharacter1('');
@@ -638,6 +714,7 @@ export default function App() {
     setKeyword1('');
     setKeyword2('');
     setKeyword3('');
+    setGenre('random');
     SecureStore.deleteItemAsync('lastStory').catch(() => {});
   };
 
@@ -770,7 +847,7 @@ export default function App() {
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.navBtn}
-            onPress={() => setCurrentScreen('stories')}
+            onPress={handleGoHome}
           >
             <Text style={styles.btnText}>🏠 Home</Text>
           </TouchableOpacity>
@@ -815,7 +892,7 @@ export default function App() {
           <View style={styles.header}>
             <TouchableOpacity 
               style={styles.navBtn}
-              onPress={() => setCurrentScreen('stories')}
+              onPress={handleGoHome}
             >
               <Text style={styles.btnText}>🏠 Home</Text>
             </TouchableOpacity>
@@ -845,7 +922,7 @@ export default function App() {
           <View style={styles.header}>
             <TouchableOpacity 
               style={styles.navBtn}
-              onPress={() => setCurrentScreen('stories')}
+              onPress={handleGoHome}
             >
               <Text style={styles.btnText}>🏠 Home</Text>
             </TouchableOpacity>
@@ -877,7 +954,7 @@ export default function App() {
           <View style={styles.header}>
             <TouchableOpacity 
               style={styles.navBtn}
-              onPress={() => setCurrentScreen('stories')}
+              onPress={handleGoHome}
             >
               <Text style={styles.btnText}>🏠 Home</Text>
             </TouchableOpacity>
@@ -901,7 +978,7 @@ export default function App() {
           <View style={styles.header}>
             <TouchableOpacity 
               style={styles.navBtn}
-              onPress={() => setCurrentScreen('stories')}
+              onPress={handleGoHome}
             >
               <Text style={styles.btnText}>🏠 Home</Text>
             </TouchableOpacity>
@@ -969,12 +1046,6 @@ export default function App() {
               onSavedStoriesPress={handleMenuSavedStories}
               onSupportPress={handleMenuSupport}
               onFAQPress={handleMenuFAQ}
-              onDarkModeToggle={handleMenuDarkMode}
-              onSignOut={handleMenuSignOut}
-              onUpgrade={() => setShowUpgradeModal(true)}
-              isSubscribed={subscriptionStatus?.isSubscribed}
-              isGuest={isGuestMode}
-            />
               onDarkModeToggle={handleMenuDarkMode}
               onSignOut={handleMenuSignOut}
               onUpgrade={() => setShowUpgradeModal(true)}
@@ -1097,7 +1168,7 @@ export default function App() {
             <Text style={styles.visualBtnText}>🎨 Help Me Create!</Text>
           </TouchableOpacity>
 
-          {story && (
+          {shouldShowReset() && (
             <TouchableOpacity 
               style={styles.resetBtn}
               onPress={resetStory}
@@ -1108,29 +1179,6 @@ export default function App() {
         </View>
       </View>
 
-      {story ? (
-        <View style={styles.storySection}>
-          <View style={styles.fontControls}>
-            <TouchableOpacity 
-              style={styles.fontBtn}
-              onPress={() => setFontSize(Math.max(12, fontSize - 2))}
-            >
-              <Text style={styles.fontBtnText}>A-</Text>
-            </TouchableOpacity>
-            <Text style={styles.fontSizeText}>{fontSize}px</Text>
-            <TouchableOpacity 
-              style={styles.fontBtn}
-              onPress={() => setFontSize(Math.min(24, fontSize + 2))}
-            >
-              <Text style={styles.fontBtnText}>A+</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.storyContainer}>
-            <Markdown style={getMarkdownStyles(darkMode, fontSize)}>{story}</Markdown>
-          </View>
-        </View>
-      ) : null}
-      
       <AdModal 
         visible={showAdModal}
         onAdComplete={handleAdComplete}
