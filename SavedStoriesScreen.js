@@ -1,9 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Alert, ScrollView, StyleSheet, Modal, TextInput } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import Markdown from 'react-native-markdown-display';
+import { createGlobalStyles } from './styles/GlobalStyles';
 
-export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile, onReloadStory }) {
+export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile, onReloadStory, isOffline }) {
+  const globalStyles = createGlobalStyles(darkMode);
   const [savedStories, setSavedStories] = useState([]);
+  const [allStories, setAllStories] = useState([]);
+  const [profileFilter, setProfileFilter] = useState(null);
   const [selectedStory, setSelectedStory] = useState(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [password, setPassword] = useState('');
@@ -13,8 +18,12 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
     loadSavedStories();
   }, []);
 
+  useEffect(() => {
+    loadSavedStories();
+  }, [currentProfile]);
+
   const requestPassword = (action) => {
-    setPendingAction(action);
+    setPendingAction(() => action);
     setShowPasswordModal(true);
     setPassword('');
   };
@@ -55,6 +64,7 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
   };
 
   const loadSavedStories = async () => {
+    console.log('loadSavedStories: Starting...');
     try {
       // Try to load from cloud first
       const response = await fetch(`${process.env.EXPO_PUBLIC_LAMBDA_URL}`, {
@@ -66,10 +76,14 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
         })
       });
 
+      console.log('loadSavedStories: Response status', response.status, 'ok:', response.ok);
+      
       if (response.ok) {
         const result = await response.json();
-        if (result.success && result.stories) {
-          const formattedStories = result.stories.map(story => ({
+        console.log('loadSavedStories: Result success', result.success, 'Stories count', result.stories?.length || 0);
+        
+        if (result.success) {
+          const formattedStories = (result.stories || []).map(story => ({
             content: story.story_content,
             timestamp: new Date(story.timestamp).getTime(),
             genre: story.genre,
@@ -78,24 +92,61 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
             keyword1: story.keyword1,
             ageRating: story.age_rating,
             storyId: story.story_id,
-            status: story.status || 'success'
+            status: story.status || 'success',
+            profileId: story.profile_id || null,
+            profileName: story.profile_name || 'Global'
           }));
-          setSavedStories(formattedStories);
+          
+          console.log('loadSavedStories: Loaded from DynamoDB, count:', formattedStories.length);
+          setAllStories(formattedStories);
+          
+          
+          // Filter stories by current profile
+          if (currentProfile) {
+            // If a profile is selected, only show stories for that profile
+            const filtered = formattedStories.filter(story => story.profileId === currentProfile.id);
+            setSavedStories(filtered);
+          } else {
+            // If no profile selected, show all stories
+            const filtered = profileFilter 
+              ? formattedStories.filter(story => story.profileId === profileFilter)
+              : formattedStories;
+            setSavedStories(filtered);
+          }
           return;
         }
+      } else {
+        const errorText = await response.text();
+        console.log('loadSavedStories: Response error', response.status, errorText);
       }
     } catch (error) {
-      console.log('Cloud load failed, trying local storage');
+      console.log('loadSavedStories: Error from DynamoDB', error.message);
     }
 
-    // Fallback to SecureStore
+    // Fallback to SecureStore only if DynamoDB query failed
+    console.log('loadSavedStories: Falling back to SecureStore');
     try {
       const stories = await SecureStore.getItemAsync('savedStories');
       if (stories) {
-        setSavedStories(JSON.parse(stories));
+        const allStoriesData = JSON.parse(stories);
+        console.log('loadSavedStories: Loaded from SecureStore, count:', allStoriesData.length);
+        setAllStories(allStoriesData);
+        
+        // Filter stories by current profile
+        if (currentProfile) {
+          const filtered = allStoriesData.filter(story => story.profileId === currentProfile.id);
+          setSavedStories(filtered);
+        } else {
+          const filtered = profileFilter 
+            ? allStoriesData.filter(story => story.profileId === profileFilter)
+            : allStoriesData;
+          setSavedStories(filtered);
+        }
+      } else {
+        setSavedStories([]);
       }
     } catch (error) {
-      console.error('Error loading saved stories:', error);
+      console.log('loadSavedStories: Error from SecureStore', error);
     }
   };
 
@@ -116,7 +167,6 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
             })
           });
         } catch (cloudError) {
-          console.log('Cloud delete failed, deleting locally only');
         }
       }
 
@@ -131,6 +181,10 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
   };
 
   const deleteStory = (index) => {
+    if (isOffline) {
+      Alert.alert('Offline', 'Story deletion requires internet connection');
+      return;
+    }
     Alert.alert(
       'Delete Story',
       'Are you sure you want to delete this story?',
@@ -140,6 +194,59 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
           text: 'Delete', 
           style: 'destructive',
           onPress: () => requestPassword(() => deleteStoryAction(index))
+        }
+      ]
+    );
+  };
+
+  const deleteAllStoriesAction = async () => {
+    try {
+      // Delete all stories from cloud
+      for (const story of savedStories) {
+        if (story.storyId) {
+          try {
+            await fetch(`${process.env.EXPO_PUBLIC_LAMBDA_URL}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'delete_story',
+                storyId: story.storyId,
+                userEmail: userEmail
+              })
+            });
+          } catch (cloudError) {
+          }
+        }
+      }
+
+      // Clear local storage
+      setSavedStories([]);
+      await SecureStore.setItemAsync('savedStories', JSON.stringify([]));
+      Alert.alert('Success', 'All stories deleted successfully');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to delete all stories');
+    }
+  };
+
+  const deleteAllStories = () => {
+    if (isOffline) {
+      Alert.alert('Offline', 'Story deletion requires internet connection');
+      return;
+    }
+    if (savedStories.length === 0) {
+      Alert.alert('No Stories', 'There are no stories to delete');
+      return;
+    }
+    
+    Alert.alert(
+      'Delete All Stories',
+      `Are you sure you want to delete all ${savedStories.length} stories? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete All', 
+          style: 'destructive',
+          onPress: () => requestPassword(deleteAllStoriesAction)
         }
       ]
     );
@@ -192,36 +299,72 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
   const styles = getStyles(darkMode);
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Saved Stories</Text>
-        <Text style={styles.subtitle}>
-          {currentProfile 
-            ? `Stories for: ${currentProfile.name}` 
-            : 'Global saved stories (no profile selected)'}
-        </Text>
-      </View>
+    <ScrollView style={{flex: 1}}>
+      <Text style={globalStyles.subtitle}>
+        {currentProfile 
+          ? `Stories for: ${currentProfile.name}` 
+          : 'All Stories (All Profiles)'}
+      </Text>
+      
+      {!currentProfile && allStories.length > 0 && (
+        <View style={globalStyles.filterContainer}>
+          <Text style={globalStyles.filterLabel}>Filter by profile:</Text>
+            <TouchableOpacity 
+              style={[globalStyles.filterBtn, !profileFilter && globalStyles.filterBtnActive]}
+              onPress={() => {
+                setProfileFilter(null);
+                setSavedStories(allStories);
+              }}
+            >
+              <Text style={globalStyles.filterBtnText}>All</Text>
+            </TouchableOpacity>
+            {[...new Set(allStories.map(s => s.profileId).filter(Boolean))].map(profId => {
+              const story = allStories.find(s => s.profileId === profId);
+              return (
+                <TouchableOpacity 
+                  key={profId}
+                  style={[globalStyles.filterBtn, profileFilter === profId && globalStyles.filterBtnActive]}
+                  onPress={() => {
+                    setProfileFilter(profId);
+                    setSavedStories(allStories.filter(s => s.profileId === profId));
+                  }}
+                >
+                  <Text style={globalStyles.filterBtnText}>{story?.profileName || 'Unknown'}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity 
+              style={[globalStyles.filterBtn, profileFilter === 'global' && globalStyles.filterBtnActive]}
+              onPress={() => {
+                setProfileFilter('global');
+                setSavedStories(allStories.filter(s => !s.profileId));
+              }}
+            >
+              <Text style={globalStyles.filterBtnText}>Global</Text>
+            </TouchableOpacity>
+        </View>
+      )}
 
       {savedStories.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>No saved stories yet</Text>
-          <Text style={styles.emptySubtext}>Stories you save will appear here</Text>
+        <View style={globalStyles.section}>
+          <Text style={globalStyles.cardTitle}>No saved stories yet</Text>
+          <Text style={globalStyles.description}>Stories you save will appear here</Text>
         </View>
       ) : (
-        <View style={styles.storiesSection}>
-          <Text style={styles.sectionTitle}>Your Stories ({savedStories.length}):</Text>
+        <View style={globalStyles.section}>
+          <Text style={globalStyles.cardTitle}>Your Stories ({savedStories.length}):</Text>
           <View style={styles.cardsContainer}>
             {savedStories.map((story, index) => (
               <TouchableOpacity 
                 key={index} 
-                style={styles.storyCard}
+                style={globalStyles.card}
                 onPress={() => setSelectedStory(selectedStory === index ? null : index)}
               >
                 <View style={styles.cardHeader}>
                   <View style={styles.charactersRow}>
                     <Text style={styles.characterEmoji}>{getCharacterEmoji(story.character1)}</Text>
                     <Text style={styles.characterEmoji}>{getCharacterEmoji(story.character2)}</Text>
-                    <Text style={styles.cardTitle}>
+                    <Text style={globalStyles.cardTitle}>
                       {story.character1} & {story.character2}
                     </Text>
                   </View>
@@ -231,67 +374,56 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
                 <View style={styles.cardContent}>
                   <View style={styles.tagsRow}>
                     <View style={styles.genreTag}>
-                      <Text style={styles.genreTagText}>{story.genre}</Text>
+                      <Text style={styles.tagText}>{story.genre}</Text>
                     </View>
                     <View style={styles.keywordTag}>
-                      <Text style={styles.keywordTagText}>{story.keyword1}</Text>
+                      <Text style={styles.tagText}>{story.keyword1}</Text>
                     </View>
                     <View style={styles.ageTag}>
-                      <Text style={styles.ageTagText}>{story.ageRating}</Text>
+                      <Text style={styles.tagText}>{story.ageRating}</Text>
                     </View>
+                    {!currentProfile && (
+                      <View style={globalStyles.profileTag}>
+                        <Text style={globalStyles.profileTagText}>👤 {story.profileName || 'Global'}</Text>
+                      </View>
+                    )}
                   </View>
                 </View>
 
                 {selectedStory === index && (
                   <View style={styles.expandedContent}>
+                    <Markdown style={{
+                      body: { color: darkMode ? '#fff' : '#333', fontSize: 14, lineHeight: 20 },
+                      paragraph: { marginBottom: 8 },
+                      strong: { fontWeight: 'bold' },
+                      em: { fontStyle: 'italic' }
+                    }}>
+                      {story.content.split(' ').slice(0, 50).join(' ') + '...'}
+                    </Markdown>
                     <View style={styles.metadataRow}>
-                      <Text style={styles.metadataText}>
-                        📅 {formatDate(story.timestamp).split(' ')[0]}
-                      </Text>
-                      <Text style={styles.metadataText}>
-                        ⏱️ {getReadingTime(story.content)}
-                      </Text>
-                      <Text style={styles.metadataText}>
-                        📝 {story.content.split(' ').length} words
-                      </Text>
+                      <Text style={globalStyles.bodyText}>{formatDate(story.timestamp)}</Text>
+                      <Text style={globalStyles.bodyText}>{getReadingTime(story.content)}</Text>
                     </View>
-                    
-                    <ScrollView style={styles.fullStoryContainer} nestedScrollEnabled>
-                      <Text style={styles.fullStoryText}>{story.content}</Text>
-                    </ScrollView>
                     
                     <View style={styles.actionButtons}>
                       {canReloadStory(story) ? (
                         <TouchableOpacity
-                          style={styles.reloadBtn}
+                          style={globalStyles.primaryButton}
                           onPress={() => reloadStory(story)}
                         >
-                          <Text style={styles.reloadBtnText}>📖 View Full Story</Text>
+                          <Text style={globalStyles.buttonText}>📖 View Full Story</Text>
                         </TouchableOpacity>
                       ) : (
-                        <View style={styles.disabledBtn}>
-                          <Text style={styles.disabledBtnText}>🔒 Age Restricted</Text>
+                        <View style={[globalStyles.primaryButton, globalStyles.buttonDisabled]}>
+                          <Text style={globalStyles.buttonText}>🔒 Age Restricted</Text>
                         </View>
                       )}
                       
                       <TouchableOpacity
-                        style={styles.deleteBtn}
-                        onPress={() => {
-                          Alert.alert(
-                            'Delete Story',
-                            'Are you sure you want to delete this story? This action cannot be undone.',
-                            [
-                              { text: 'Cancel', style: 'cancel' },
-                              { 
-                                text: 'Delete', 
-                                style: 'destructive',
-                                onPress: () => deleteStory(index)
-                              }
-                            ]
-                          );
-                        }}
+                        style={globalStyles.dangerButton}
+                        onPress={() => deleteStory(index)}
                       >
-                        <Text style={styles.deleteBtnText}>🗑️ Delete Story</Text>
+                        <Text style={globalStyles.dangerButtonText}>🗑️ Delete Story</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -302,17 +434,26 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
         </View>
       )}
 
+      {savedStories.length > 0 && (
+        <TouchableOpacity 
+          style={globalStyles.dangerButton}
+          onPress={deleteAllStories}
+        >
+          <Text style={globalStyles.dangerButtonText}>🗑️ Delete All Stories</Text>
+        </TouchableOpacity>
+      )}
+
       <Modal
         visible={showPasswordModal}
         transparent={true}
         animationType="fade"
         onRequestClose={() => setShowPasswordModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.passwordModal}>
-            <Text style={styles.passwordTitle}>Enter Your Login Password</Text>
+        <View style={globalStyles.modalOverlay}>
+          <View style={globalStyles.modalContainer}>
+            <Text style={globalStyles.modalTitle}>Enter Your Login Password</Text>
             <TextInput
-              style={styles.passwordInput}
+              style={globalStyles.textInput}
               placeholder="Enter password"
               placeholderTextColor={darkMode ? '#999' : '#666'}
               value={password}
@@ -320,18 +461,18 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
               secureTextEntry={true}
               autoFocus={true}
             />
-            <View style={styles.passwordButtons}>
+            <View style={{flexDirection: 'row', gap: 10, marginTop: 10}}>
               <TouchableOpacity 
-                style={[styles.passwordBtn, styles.cancelBtn]}
+                style={[globalStyles.outlineButton, {flex: 1}]}
                 onPress={() => setShowPasswordModal(false)}
               >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
+                <Text style={globalStyles.outlineButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={[styles.passwordBtn, styles.confirmBtn]}
+                style={[globalStyles.primaryButton, {flex: 1}]}
                 onPress={verifyPassword}
               >
-                <Text style={styles.confirmBtnText}>Confirm</Text>
+                <Text style={globalStyles.buttonText}>Confirm</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -342,61 +483,9 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
 }
 
 const getStyles = (darkMode) => StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: darkMode ? '#1A202C' : '#F7FAFC',
-    padding: 20,
-  },
-  header: {
-    marginBottom: 30,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: darkMode ? '#E2E8F0' : '#2D3748',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: darkMode ? '#A0AEC0' : '#4A5568',
-  },
-  emptyState: {
-    backgroundColor: darkMode ? '#2D3748' : '#FFFFFF',
-    padding: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 18,
-    color: darkMode ? '#E2E8F0' : '#2D3748',
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: darkMode ? '#A0AEC0' : '#4A5568',
-  },
-  storiesSection: {
-    backgroundColor: darkMode ? '#2D3748' : '#FFFFFF',
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: darkMode ? '#E2E8F0' : '#2D3748',
-    marginBottom: 16,
-  },
+  // Only component-specific layout styles
   cardsContainer: {
-    // Cards will inherit the container width
-  },
-  storyCard: {
-    backgroundColor: darkMode ? '#374151' : '#F7FAFC',
-    borderRadius: 8,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: darkMode ? '#4A5568' : '#E2E8F0',
-    overflow: 'hidden',
+    gap: 12,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -414,40 +503,22 @@ const getStyles = (darkMode) => StyleSheet.create({
     fontSize: 20,
     marginRight: 8,
   },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: darkMode ? '#E2E8F0' : '#2D3748',
-    flex: 1,
-  },
   statusIcon: {
-    fontSize: 16,
+    fontSize: 20,
   },
   cardContent: {
     paddingHorizontal: 16,
     paddingBottom: 12,
-  },
-  storyPreview: {
-    fontSize: 14,
-    color: darkMode ? '#A0AEC0' : '#4A5568',
-    lineHeight: 20,
-  },
-  cardFooter: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
   },
   metadataRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 8,
   },
-  metadataText: {
-    fontSize: 12,
-    color: darkMode ? '#9CA3AF' : '#6B7280',
-  },
   tagsRow: {
     flexDirection: 'row',
     gap: 8,
+    flexWrap: 'wrap',
   },
   genreTag: {
     backgroundColor: '#6B73FF',
@@ -455,20 +526,21 @@ const getStyles = (darkMode) => StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
-  genreTagText: {
-    fontSize: 10,
-    color: 'white',
-    fontWeight: '500',
-  },
   keywordTag: {
     backgroundColor: darkMode ? '#4A5568' : '#E2E8F0',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
   },
-  keywordTagText: {
+  ageTag: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  tagText: {
     fontSize: 10,
-    color: darkMode ? '#E2E8F0' : '#4A5568',
+    color: 'white',
     fontWeight: '500',
   },
   expandedContent: {
@@ -477,157 +549,8 @@ const getStyles = (darkMode) => StyleSheet.create({
     padding: 16,
     backgroundColor: darkMode ? '#374151' : '#F7FAFC',
   },
-  fullStoryContainer: {
-    maxHeight: 200,
-    marginBottom: 12,
-  },
-  fullStoryText: {
-    fontSize: 14,
-    color: darkMode ? '#E2E8F0' : '#2D3748',
-    lineHeight: 20,
-  },
   actionButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  reloadBtn: {
-    backgroundColor: '#4F46E5',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    flex: 1,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  reloadBtnText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  ageTag: {
-    backgroundColor: '#10B981',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  ageTagText: {
-    fontSize: 10,
-    color: 'white',
-    fontWeight: '500',
-  },
-  disabledBtn: {
-    backgroundColor: '#9CA3AF',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    flex: 1,
-    alignItems: 'center',
-  },
-  disabledBtnText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  deleteBtn: {
-    backgroundColor: '#E53E3E',
-    padding: 10,
-    borderRadius: 6,
-    alignItems: 'center',
-  },
-  deleteBtnText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  passwordSection: {
-    backgroundColor: darkMode ? '#2D3748' : '#FFFFFF',
-    padding: 20,
-    borderRadius: 12,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: darkMode ? '#E2E8F0' : '#2D3748',
-    marginBottom: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: darkMode ? '#4A5568' : '#CBD5E0',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    color: darkMode ? '#E2E8F0' : '#2D3748',
-    backgroundColor: darkMode ? '#374151' : '#F7FAFC',
-    marginBottom: 15,
-  },
-  submitBtn: {
-    backgroundColor: '#6B73FF',
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  submitBtnText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  passwordModal: {
-    backgroundColor: darkMode ? '#333' : '#fff',
-    borderRadius: 10,
-    padding: 20,
-    margin: 20,
-    minWidth: 300,
-  },
-  passwordTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: darkMode ? '#fff' : '#000',
-    textAlign: 'center',
-    marginBottom: 15,
-  },
-  passwordInput: {
-    backgroundColor: darkMode ? '#444' : '#f5f5f5',
-    color: darkMode ? '#fff' : '#000',
-    padding: 12,
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: darkMode ? '#555' : '#ddd',
-    marginBottom: 15,
-    fontSize: 16,
-  },
-  passwordButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  passwordBtn: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 5,
-    alignItems: 'center',
-  },
-  cancelBtn: {
-    backgroundColor: darkMode ? '#555' : '#ddd',
-  },
-  confirmBtn: {
-    backgroundColor: '#4CAF50',
-  },
-  cancelBtnText: {
-    color: darkMode ? '#fff' : '#000',
-    fontWeight: 'bold',
-  },
-  confirmBtnText: {
-    color: '#fff',
-    fontWeight: 'bold',
+    flexDirection: 'column',
+    gap: 8,
   },
 });

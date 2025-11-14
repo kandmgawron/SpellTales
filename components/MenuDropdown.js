@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal } from 'react-native';
+import { createGlobalStyles } from '../styles/GlobalStyles';
 
 const MenuDropdown = ({ 
   darkMode, 
   currentProfile,
   profiles,
+  currentAgeRating,
   onProfileChange,
   onProfilesPress,
   onWordsPress, 
@@ -16,19 +18,21 @@ const MenuDropdown = ({
   onSignOut,
   onUpgrade,
   isSubscribed,
-  isGuest
+  isGuest,
+  onRequestPassword
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showProfileSelector, setShowProfileSelector] = useState(false);
-  const styles = getStyles(darkMode);
+  const globalStyles = createGlobalStyles(darkMode);
 
   const handleItemPress = (item) => {
-    setIsOpen(false);
-    
     if (item.isProfile) {
-      setShowProfileSelector(true);
+      setIsOpen(false);
+      setTimeout(() => setShowProfileSelector(true), 100);
       return;
     }
+    
+    setIsOpen(false);
     
     // Check if feature is available for current user type
     if (item.requiresPremium && !isSubscribed) {
@@ -45,38 +49,40 @@ const MenuDropdown = ({
   };
 
   const menuItems = [
-    ...(profiles.length > 0 ? [{ 
-      label: `👤 Profile: ${currentProfile?.name || 'None'}`, 
-      onPress: () => {}, 
-      isProfile: true,
+    { 
+      label: `👤 Profile: ${isSubscribed && currentProfile ? currentProfile.name : 'Global'} ${!isSubscribed ? '🔒' : ''}`, 
+      onPress: isSubscribed ? () => {} : onUpgrade, 
+      isProfile: isSubscribed,
       available: true
-    }] : []),
+    },
+    { 
+      label: `  👶 Age: ${currentAgeRating || 'Children'}`, 
+      onPress: isGuest ? onUpgrade : onAgePress, 
+      available: !isGuest,
+      isSubmenu: true
+    },
+    { 
+      label: '  📝 Words', 
+      onPress: isSubscribed ? onWordsPress : onUpgrade, 
+      requiresPremium: true,
+      available: isSubscribed,
+      isSubmenu: true
+    },
+    { 
+      label: '  💾 Saved Stories', 
+      onPress: isSubscribed ? onSavedStoriesPress : onUpgrade, 
+      requiresPremium: true,
+      available: isSubscribed,
+      isSubmenu: true
+    },
     { 
       label: '👥 Manage Profiles', 
-      onPress: (isSubscribed && !isGuest) ? onProfilesPress : onUpgrade, 
-      available: Boolean(isSubscribed && !isGuest)
-    },
-    { 
-      label: '📝 Words', 
-      onPress: onWordsPress, 
-      requiresPremium: true,
-      available: isSubscribed
-    },
-    { 
-      label: '👶 Age Rating', 
-      onPress: onAgePress, 
-      requiresAccount: true,
-      available: !isGuest
-    },
-    { 
-      label: '💾 Saved Stories', 
-      onPress: onSavedStoriesPress, 
-      requiresPremium: true,
+      onPress: isSubscribed ? onProfilesPress : onUpgrade, 
       available: isSubscribed
     },
     { 
       label: '🎧 Support', 
-      onPress: onSupportPress, 
+      onPress: isSubscribed ? onSupportPress : onUpgrade, 
       requiresPremium: true,
       available: isSubscribed
     },
@@ -98,12 +104,12 @@ const MenuDropdown = ({
   ];
 
   return (
-    <View style={styles.container}>
+    <View style={globalStyles.menuContainer}>
       <TouchableOpacity 
-        style={styles.menuButton} 
+        style={globalStyles.menuButton} 
         onPress={() => setIsOpen(!isOpen)}
       >
-        <Text style={styles.menuIcon}>⋮</Text>
+        <Text style={globalStyles.menuIcon}>⋮</Text>
       </TouchableOpacity>
 
       <Modal
@@ -113,22 +119,23 @@ const MenuDropdown = ({
         onRequestClose={() => setIsOpen(false)}
       >
         <TouchableOpacity 
-          style={styles.overlay} 
+          style={globalStyles.overlay} 
           onPress={() => setIsOpen(false)}
         >
-          <View style={styles.dropdown}>
+          <View style={globalStyles.dropdown}>
             {menuItems.map((item, index) => (
               <TouchableOpacity
                 key={index}
                 style={[
-                  styles.menuItem,
-                  !item.available && styles.menuItemDisabled
+                  globalStyles.menuItem,
+                  item.isSubmenu && globalStyles.submenuItem,
+                  !item.available && globalStyles.menuItemDisabled
                 ]}
                 onPress={() => handleItemPress(item)}
               >
                 <Text style={[
-                  styles.menuItemText,
-                  !item.available && styles.menuItemTextDisabled
+                  globalStyles.menuItemText,
+                  !item.available && globalStyles.menuItemTextDisabled
                 ]}>
                   {item.label}
                   {!item.available && ' 🔒'}
@@ -146,105 +153,48 @@ const MenuDropdown = ({
         onRequestClose={() => setShowProfileSelector(false)}
       >
         <TouchableOpacity 
-          style={styles.overlay} 
+          style={globalStyles.overlay} 
+          activeOpacity={1}
           onPress={() => setShowProfileSelector(false)}
         >
-          <View style={styles.dropdown}>
-            <Text style={styles.profileHeader}>Select Profile:</Text>
-            <TouchableOpacity
-              style={[styles.menuItem, !currentProfile && styles.selectedProfile]}
-              onPress={() => {
-                onProfileChange(null);
-                setShowProfileSelector(false);
-              }}
-            >
-              <Text style={[styles.menuItemText, !currentProfile && styles.selectedProfileText]}>
-                🌐 None (Global Settings)
-              </Text>
-            </TouchableOpacity>
-            {profiles.map((profile) => (
+          <TouchableOpacity activeOpacity={1}>
+            <View style={globalStyles.dropdown}>
+              <Text style={globalStyles.menuItemText}>Select Profile:</Text>
               <TouchableOpacity
-                key={profile.id}
-                style={[styles.menuItem, profile.id === currentProfile?.id && styles.selectedProfile]}
+                style={globalStyles.menuItem}
                 onPress={() => {
-                  onProfileChange(profile);
                   setShowProfileSelector(false);
+                  setTimeout(() => {
+                    onRequestPassword(() => onProfileChange(null));
+                  }, 200);
                 }}
               >
-                <Text style={[styles.menuItemText, profile.id === currentProfile?.id && styles.selectedProfileText]}>
-                  👤 {profile.name}
+                <Text style={globalStyles.menuItemText}>
+                  🌐 None (Global Settings)
                 </Text>
               </TouchableOpacity>
-            ))}
-          </View>
+              {profiles.map((profile) => (
+                <TouchableOpacity
+                  key={profile.id}
+                  style={globalStyles.menuItem}
+                  onPress={() => {
+                    setShowProfileSelector(false);
+                    setTimeout(() => {
+                      onRequestPassword(() => onProfileChange(profile));
+                    }, 200);
+                  }}
+                >
+                  <Text style={globalStyles.menuItemText}>
+                    👤 {profile.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
     </View>
   );
 };
-
-const getStyles = (darkMode) => StyleSheet.create({
-  container: {
-    position: 'relative',
-  },
-  menuButton: {
-    padding: 10,
-    borderRadius: 20,
-    backgroundColor: darkMode ? '#4A5568' : '#E2E8F0',
-  },
-  menuIcon: {
-    fontSize: 20,
-    color: darkMode ? '#E2E8F0' : '#4A5568',
-    fontWeight: 'bold',
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    justifyContent: 'flex-start',
-    alignItems: 'flex-end',
-    paddingTop: 100,
-    paddingRight: 20,
-  },
-  dropdown: {
-    backgroundColor: darkMode ? '#2D3748' : '#FFFFFF',
-    borderRadius: 8,
-    minWidth: 150,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  menuItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: darkMode ? '#4A5568' : '#E2E8F0',
-  },
-  menuItemDisabled: {
-    opacity: 0.5,
-  },
-  menuItemText: {
-    fontSize: 16,
-    color: darkMode ? '#E2E8F0' : '#2D3748',
-  },
-  menuItemTextDisabled: {
-    color: darkMode ? '#6B7280' : '#9CA3AF',
-  },
-  profileHeader: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: darkMode ? '#E2E8F0' : '#4A5568',
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: darkMode ? '#4A5568' : '#E2E8F0',
-  },
-  selectedProfile: {
-    backgroundColor: darkMode ? '#4A5568' : '#E2E8F0',
-  },
-  selectedProfileText: {
-    fontWeight: 'bold',
-  },
-});
 
 export default MenuDropdown;

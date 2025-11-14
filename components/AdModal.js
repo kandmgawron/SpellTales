@@ -1,27 +1,43 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { AdService } from '../services/AdService';
+import { createGlobalStyles } from '../styles/GlobalStyles';
 
 export default function AdModal({ visible, onAdComplete, onClose, darkMode }) {
-  const [adState, setAdState] = useState('loading'); // loading, ready, error
+  const [adState, setAdState] = useState('loading'); // loading, ready, watching, error
   const [errorMessage, setErrorMessage] = useState('');
+  const [countdown, setCountdown] = useState(5);
+  const globalStyles = createGlobalStyles(darkMode);
 
   useEffect(() => {
     if (visible) {
+      setAdState('loading');
+      setCountdown(5);
       checkAdStatus();
     }
   }, [visible]);
 
-  const checkAdStatus = () => {
+  useEffect(() => {
+    if (adState === 'watching' && countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [adState, countdown]);
+
+  const checkAdStatus = async () => {
     if (AdService.isAdReady()) {
       setAdState('ready');
     } else {
       setAdState('loading');
-      AdService.loadAd();
+      await AdService.loadAd();
+      setAdState('ready');
     }
   };
 
   const handleShowAd = async () => {
+    setAdState('watching');
+    setCountdown(5);
+    
     const success = await AdService.showAd({
       onRewarded: (reward) => {
         onAdComplete();
@@ -30,9 +46,6 @@ export default function AdModal({ visible, onAdComplete, onClose, darkMode }) {
         setAdState('error');
         setErrorMessage('Failed to show ad. Please try again.');
       },
-      onClosed: () => {
-        // Ad was closed without reward
-      }
     });
 
     if (!success) {
@@ -60,17 +73,28 @@ export default function AdModal({ visible, onAdComplete, onClose, darkMode }) {
               <Text style={styles.description}>
                 Watch a short video ad to unlock your story generation!
               </Text>
-              <TouchableOpacity style={styles.button} onPress={handleShowAd}>
-                <Text style={styles.buttonText}>📺 Watch Ad</Text>
+              <TouchableOpacity style={globalStyles.primaryButton} onPress={handleShowAd}>
+                <Text style={globalStyles.buttonText}>📺 Watch Ad</Text>
               </TouchableOpacity>
+            </>
+          )}
+          
+          {adState === 'watching' && (
+            <>
+              <Text style={styles.title}>📺 Watching Ad...</Text>
+              <Text style={styles.countdown}>{countdown}</Text>
+              <Text style={styles.description}>
+                Please wait while the ad plays
+              </Text>
+              <ActivityIndicator size="large" color="#4CAF50" />
             </>
           )}
           
           {adState === 'error' && (
             <>
               <Text style={styles.errorText}>⚠️ {errorMessage}</Text>
-              <TouchableOpacity style={styles.button} onPress={checkAdStatus}>
-                <Text style={styles.buttonText}>Try Again</Text>
+              <TouchableOpacity style={globalStyles.primaryButton} onPress={checkAdStatus}>
+                <Text style={globalStyles.buttonText}>Try Again</Text>
               </TouchableOpacity>
             </>
           )}
@@ -117,23 +141,18 @@ const getStyles = (darkMode) => StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
   },
+  countdown: {
+    color: darkMode ? '#fff' : '#333',
+    fontSize: 48,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginVertical: 20,
+  },
   errorText: {
     color: '#ff6666',
     fontSize: 16,
     textAlign: 'center',
     marginBottom: 20,
-  },
-  button: {
-    backgroundColor: '#4CAF50',
-    padding: 15,
-    borderRadius: 8,
-    width: '100%',
-  },
-  buttonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
   },
   closeButton: {
     position: 'absolute',

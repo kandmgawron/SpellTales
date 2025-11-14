@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Alert, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, ScrollView, StyleSheet } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import { createGlobalStyles } from './styles/GlobalStyles';
+import PasswordModal from './components/PasswordModal';
 
-export default function AgeRatingScreen({ darkMode, userEmail, accessToken, onAgeRatingChange, currentProfile }) {
+export default function AgeRatingScreen({ darkMode, userEmail, accessToken, onAgeRatingChange, currentProfile, isOffline }) {
+  console.log('AgeRatingScreen component mounted');
   const [currentAgeRating, setCurrentAgeRating] = useState('children');
-  const [isAuthenticated, setIsAuthenticated] = useState(true); // Skip password check since user is already authenticated
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [pendingRating, setPendingRating] = useState(null);
+  const globalStyles = createGlobalStyles(darkMode);
 
   const ageRatings = [
     { value: 'toddlers', label: 'Toddlers (2-4 years)', description: 'Very simple stories with short sentences' },
@@ -24,7 +29,23 @@ export default function AgeRatingScreen({ darkMode, userEmail, accessToken, onAg
         setCurrentAgeRating(rating);
       }
     } catch (error) {
-      console.error('Error loading age rating:', error);
+    }
+  };
+
+  const requestPasswordForChange = (rating) => {
+    if (isOffline) {
+      Alert.alert('Offline', 'Age rating changes require internet connection');
+      return;
+    }
+    setPendingRating(rating);
+    setShowPasswordModal(true);
+  };
+
+  const handlePasswordSuccess = async () => {
+    if (pendingRating) {
+      setShowPasswordModal(false);
+      await handleAgeRatingChange(pendingRating);
+      setPendingRating(null);
     }
   };
 
@@ -44,149 +65,82 @@ export default function AgeRatingScreen({ darkMode, userEmail, accessToken, onAg
   const styles = getStyles(darkMode);
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={globalStyles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Age Rating Settings</Text>
-        <Text style={styles.subtitle}>
+        <Text style={globalStyles.cardTitle}>Age Rating Settings</Text>
+        <Text style={globalStyles.subtitle}>
           {currentProfile 
             ? `Updating settings for: ${currentProfile.name}` 
             : 'Updating global settings (no profile selected)'}
         </Text>
       </View>
 
-      <View style={styles.currentSection}>
-        <Text style={styles.sectionTitle}>Current Setting:</Text>
-        <Text style={styles.currentRating}>
+      <View style={globalStyles.section}>
+        <Text style={globalStyles.cardTitle}>Current Setting:</Text>
+        <Text style={globalStyles.bodyText}>
           {ageRatings.find(r => r.value === currentAgeRating)?.label}
         </Text>
       </View>
 
-      <View style={styles.ratingsSection}>
-        <Text style={styles.sectionTitle}>Available Age Ratings:</Text>
-        {ageRatings.map((rating) => (
-          <TouchableOpacity
-            key={rating.value}
-            style={[
-              styles.ratingItem,
-              currentAgeRating === rating.value && styles.selectedRating
-            ]}
-            onPress={() => handleAgeRatingChange(rating.value)}
-          >
-            <Text style={[
-              styles.ratingLabel,
-              currentAgeRating === rating.value && styles.selectedText
-            ]}>
-              {rating.label}
-            </Text>
-            <Text style={[
-              styles.ratingDescription,
-              currentAgeRating === rating.value && styles.selectedText
-            ]}>
-              {rating.description}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      <View style={globalStyles.section}>
+        <Text style={globalStyles.cardTitle}>Available Age Ratings:</Text>
+        <View style={styles.grid}>
+          {ageRatings.map((rating) => (
+            <TouchableOpacity
+              key={rating.value}
+              style={[
+                globalStyles.iconButton,
+                currentAgeRating === rating.value && globalStyles.iconButtonSelected,
+                styles.ratingButton
+              ]}
+              onPress={() => requestPasswordForChange(rating.value)}
+            >
+              <Text style={globalStyles.iconButtonText}>
+                {rating.label}
+              </Text>
+              <Text style={[globalStyles.iconButtonText, styles.description]}>
+                {rating.description}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
+
+      <PasswordModal
+        visible={showPasswordModal}
+        darkMode={darkMode}
+        userEmail={userEmail}
+        onSuccess={handlePasswordSuccess}
+        onCancel={() => {
+          setShowPasswordModal(false);
+          setPendingRating(null);
+        }}
+        title="Enter Your Password"
+      />
     </ScrollView>
   );
 }
 
 const getStyles = (darkMode) => StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: darkMode ? '#1A202C' : '#F7FAFC',
-    padding: 20,
-  },
   header: {
     marginBottom: 30,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: darkMode ? '#E2E8F0' : '#2D3748',
-    marginBottom: 8,
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
   },
-  subtitle: {
-    fontSize: 16,
-    color: darkMode ? '#A0AEC0' : '#4A5568',
+  ratingButton: {
+    width: '48%',
+    minHeight: 100,
   },
-  passwordSection: {
-    backgroundColor: darkMode ? '#2D3748' : '#FFFFFF',
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 20,
+  description: {
+    fontSize: 10,
+    marginTop: 4,
   },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: darkMode ? '#E2E8F0' : '#2D3748',
-    marginBottom: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: darkMode ? '#4A5568' : '#CBD5E0',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    color: darkMode ? '#E2E8F0' : '#2D3748',
-    backgroundColor: darkMode ? '#374151' : '#F7FAFC',
-    marginBottom: 15,
-  },
-  submitBtn: {
-    backgroundColor: '#6B73FF',
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  submitBtnText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  currentSection: {
-    backgroundColor: darkMode ? '#2D3748' : '#FFFFFF',
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: darkMode ? '#E2E8F0' : '#2D3748',
-    marginBottom: 12,
-  },
-  currentRating: {
-    fontSize: 16,
-    color: '#6B73FF',
-    fontWeight: '500',
-  },
-  ratingsSection: {
-    backgroundColor: darkMode ? '#2D3748' : '#FFFFFF',
-    padding: 20,
-    borderRadius: 12,
-  },
-  ratingItem: {
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 12,
-    borderWidth: 2,
-    borderColor: darkMode ? '#4A5568' : '#E2E8F0',
-  },
-  selectedRating: {
-    borderColor: '#6B73FF',
-    backgroundColor: darkMode ? '#4C51BF' : '#EBF4FF',
-  },
-  ratingLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: darkMode ? '#E2E8F0' : '#2D3748',
-    marginBottom: 4,
-  },
-  ratingDescription: {
-    fontSize: 14,
-    color: darkMode ? '#A0AEC0' : '#4A5568',
-  },
-  selectedText: {
-    color: darkMode ? '#FFFFFF' : '#2B6CB0',
+  passwordButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
   },
 });

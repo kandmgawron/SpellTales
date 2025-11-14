@@ -1,44 +1,22 @@
 import React from 'react';
-import { View, Text, ActivityIndicator, StyleSheet, Dimensions, ImageBackground } from 'react-native';
+import { View, Text, ActivityIndicator, Dimensions, ImageBackground } from 'react-native';
+import { createGlobalStyles } from '../styles/GlobalStyles';
 
 const { width, height } = Dimensions.get('window');
 
 const LoadingScreen = ({ message = "Creating your story..." }) => {
+  const globalStyles = createGlobalStyles(false);
+  
   return (
     <ImageBackground 
       source={require('../assets/splash_logo.png')} 
-      style={styles.container}
-      imageStyle={styles.backgroundImage}
+      style={[globalStyles.loadingContainer, { width, height }]}
+      imageStyle={globalStyles.loadingBackgroundImage}
     >
       <ActivityIndicator size="large" color="#6B73FF" />
-      <Text style={styles.message}>{message}</Text>
+      <Text style={globalStyles.loadingMessage}>{message}</Text>
     </ImageBackground>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: width,
-    height: height,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F0F4F8',
-    zIndex: 9999,
-  },
-  backgroundImage: {
-    opacity: 0.1,
-    resizeMode: 'cover',
-  },
-  message: {
-    marginTop: 20,
-    fontSize: 18,
-    color: '#4A5568',
-    textAlign: 'center',
-    fontFamily: 'System',
-  },
-});
 
 export default LoadingScreen;

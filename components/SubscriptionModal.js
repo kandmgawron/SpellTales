@@ -1,11 +1,17 @@
 import React from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { SubscriptionService } from '../services/SubscriptionService';
+import { createGlobalStyles } from '../styles/GlobalStyles';
 
-export default function SubscriptionModal({ visible, onClose, onSubscribe, onWatchAd, darkMode }) {
+export default function SubscriptionModal({ visible, onClose, onSubscribe, onWatchAd, onSignUp, darkMode, isGuestMode }) {
   const plans = SubscriptionService.getSubscriptionPlans();
+  const globalStyles = createGlobalStyles(darkMode);
 
   const handlePurchase = async (planId) => {
+    if (isGuestMode && onSignUp) {
+      onSignUp();
+      return;
+    }
     const result = await SubscriptionService.purchaseSubscription(planId);
     if (result.success) {
       onSubscribe();
@@ -32,10 +38,12 @@ export default function SubscriptionModal({ visible, onClose, onSubscribe, onWat
                 <Text style={styles.planPrice}>{plan.price}/month</Text>
                 <Text style={styles.planDescription}>{plan.description}</Text>
                 <TouchableOpacity 
-                  style={styles.subscribeButton}
+                  style={globalStyles.primaryButton}
                   onPress={() => handlePurchase(plan.id)}
                 >
-                  <Text style={styles.subscribeText}>⭐ Subscribe Now</Text>
+                  <Text style={globalStyles.buttonText}>
+                    {isGuestMode ? '📝 Sign Up to Subscribe' : '⭐ Subscribe Now'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             ))}
@@ -44,23 +52,24 @@ export default function SubscriptionModal({ visible, onClose, onSubscribe, onWat
           <View style={styles.benefits}>
             <Text style={styles.benefitTitle}>Premium Benefits:</Text>
             <Text style={styles.benefit}>• Unlimited story generation</Text>
+            <Text style={styles.benefit}>• User profiles for different children</Text>
             <Text style={styles.benefit}>• No advertisements</Text>
             <Text style={styles.benefit}>• Priority support</Text>
             <Text style={styles.benefit}>• New features first</Text>
           </View>
           
           <TouchableOpacity 
-            style={styles.watchAdButton}
+            style={globalStyles.outlineButton}
             onPress={onWatchAd}
           >
-            <Text style={styles.watchAdText}>📺 Watch Ad to Continue (Free)</Text>
+            <Text style={globalStyles.outlineButtonText}>📺 Watch Ad to Continue</Text>
           </TouchableOpacity>
           
           <TouchableOpacity 
-            style={styles.restoreButton}
+            style={globalStyles.linkButton}
             onPress={() => SubscriptionService.restorePurchases()}
           >
-            <Text style={styles.restoreText}>Restore Purchases</Text>
+            <Text style={globalStyles.linkButtonText}>Restore Purchases</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -134,17 +143,6 @@ const getStyles = (darkMode) => StyleSheet.create({
     color: darkMode ? '#ccc' : '#666',
     marginBottom: 10,
   },
-  subscribeButton: {
-    backgroundColor: '#4CAF50',
-    padding: 12,
-    borderRadius: 6,
-  },
-  subscribeText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
   benefits: {
     marginBottom: 20,
   },
@@ -158,25 +156,5 @@ const getStyles = (darkMode) => StyleSheet.create({
     fontSize: 14,
     color: darkMode ? '#ccc' : '#666',
     marginBottom: 5,
-  },
-  restoreButton: {
-    padding: 10,
-  },
-  restoreText: {
-    color: '#4CAF50',
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  watchAdButton: {
-    backgroundColor: '#FF9800',
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  watchAdText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
   },
 });

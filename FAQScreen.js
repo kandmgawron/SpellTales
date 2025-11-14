@@ -1,8 +1,14 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, TextInput } from 'react-native';
+import { createGlobalStyles } from './styles/GlobalStyles';
+import * as SecureStore from 'expo-secure-store';
 
-export default function FAQScreen({ darkMode }) {
+export default function FAQScreen({ darkMode, userEmail, isGuest, isSubscribed, onAccountDeleted }) {
   const [expandedSection, setExpandedSection] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const globalStyles = createGlobalStyles(darkMode);
 
   const faqData = [
     {
@@ -61,16 +67,122 @@ export default function FAQScreen({ darkMode }) {
     setExpandedSection(expandedSection === id ? null : id);
   };
 
+  const handleDeleteAccount = async () => {
+    if (!deletePassword) {
+      Alert.alert('Error', 'Please enter your password to confirm');
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      // 1. Verify password with Cognito
+      const authResponse = await fetch(`https://cognito-idp.${process.env.EXPO_PUBLIC_COGNITO_REGION}.amazonaws.com/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-amz-json-1.1',
+          'X-Amz-Target': 'AWSCognitoIdentityProviderService.InitiateAuth'
+        },
+        body: JSON.stringify({
+          AuthFlow: 'USER_PASSWORD_AUTH',
+          ClientId: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID,
+          AuthParameters: {
+            USERNAME: userEmail,
+            PASSWORD: deletePassword
+          }
+        })
+      });
+
+      const authData = await authResponse.json();
+      
+      if (!authResponse.ok || !authData.AuthenticationResult) {
+        Alert.alert('Error', 'Invalid password');
+        setDeleting(false);
+        return;
+      }
+
+      const accessToken = authData.AuthenticationResult.AccessToken;
+
+      // 2. Delete all user data from DynamoDB via Lambda
+      try {
+        const deleteResponse = await fetch(`${process.env.EXPO_PUBLIC_LAMBDA_URL}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'deleteUserData',
+            userEmail: userEmail
+          })
+        });
+        
+        if (!deleteResponse.ok) {
+        }
+      } catch (error) {
+      }
+
+      // 3. Delete from Cognito
+      const cognitoDeleteResponse = await fetch(`https://cognito-idp.${process.env.EXPO_PUBLIC_COGNITO_REGION}.amazonaws.com/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-amz-json-1.1',
+          'X-Amz-Target': 'AWSCognitoIdentityProviderService.DeleteUser'
+        },
+        body: JSON.stringify({
+          AccessToken: accessToken
+        })
+      });
+
+      if (!cognitoDeleteResponse.ok) {
+        throw new Error('Failed to delete Cognito user');
+      }
+
+      // 4. Clear local storage
+      await SecureStore.deleteItemAsync('userToken');
+      await SecureStore.deleteItemAsync('userEmail');
+      await SecureStore.deleteItemAsync('profiles');
+      await SecureStore.deleteItemAsync('savedStories');
+
+      const successMessage = isSubscribed
+        ? 'Your account and all data have been permanently deleted. Please cancel your subscription in your Apple ID settings.'
+        : 'Your account and all data have been permanently deleted.';
+
+      Alert.alert(
+        'Account Deleted',
+        successMessage,
+        [{ text: 'OK', onPress: () => onAccountDeleted() }]
+      );
+
+    } catch (error) {
+      Alert.alert('Error', 'Failed to delete account. Please try again or contact support.');
+      setDeleting(false);
+    }
+  };
+
+  const initiateDeleteAccount = () => {
+    if (isGuest) {
+      Alert.alert('Not Available', 'Guest users do not have accounts to delete.');
+      return;
+    }
+
+    const message = isSubscribed 
+      ? 'This will permanently delete your account, all profiles, saved stories, and custom words. This action cannot be undone.\n\nYou must cancel your subscription separately in your Apple ID settings.'
+      : 'This will permanently delete your account, all profiles, saved stories, and custom words. This action cannot be undone.';
+
+    Alert.alert(
+      'Delete Account',
+      message,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Continue', style: 'destructive', onPress: () => setShowDeleteConfirm(true) }
+      ]
+    );
+  };
+
   const styles = getStyles(darkMode);
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Frequently Asked Questions</Text>
-        <Text style={styles.subtitle}>Everything you need to know about SpellTales</Text>
-      </View>
+    <ScrollView style={{flex: 1}}>
+      <Text style={globalStyles.subtitle}>Everything you need to know about SpellTales</Text>
 
-      <View style={styles.faqSection}>
+      <View style={globalStyles.section}>
         {faqData.map((item) => (
           <View key={item.id} style={styles.faqItem}>
             <TouchableOpacity
@@ -95,9 +207,62 @@ export default function FAQScreen({ darkMode }) {
       <View style={styles.contactSection}>
         <Text style={styles.contactTitle}>Still have questions?</Text>
         <Text style={styles.contactText}>
-          Premium users can contact support through the app. Free users can leave feedback in app store reviews.
+          Premium users can contact support through the app. Free and Guest users can leave feedback in App Store reviews.
         </Text>
       </View>
+
+      {!isGuest && (
+        <>
+          <View style={{ height: 100 }} />
+          <View style={styles.dangerZone}>
+          <Text style={styles.dangerTitle}>⚠️ Danger Zone</Text>
+          
+          {!showDeleteConfirm ? (
+            <TouchableOpacity
+              style={globalStyles.dangerButton}
+              onPress={initiateDeleteAccount}
+            >
+              <Text style={globalStyles.dangerButtonText}>Delete Account</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.deleteConfirmContainer}>
+              <Text style={styles.deleteWarning}>
+                Enter your password to confirm account deletion:
+              </Text>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Password"
+                placeholderTextColor={darkMode ? '#888' : '#999'}
+                value={deletePassword}
+                onChangeText={setDeletePassword}
+                secureTextEntry
+                autoCapitalize="none"
+              />
+              <View style={styles.deleteButtonRow}>
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={() => {
+                    setShowDeleteConfirm(false);
+                    setDeletePassword('');
+                  }}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[globalStyles.dangerButton, {flex: 1}, deleting && styles.disabledButton]}
+                  onPress={handleDeleteAccount}
+                  disabled={deleting}
+                >
+                  <Text style={globalStyles.dangerButtonText}>
+                    {deleting ? 'Deleting...' : 'Confirm Delete'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -105,7 +270,7 @@ export default function FAQScreen({ darkMode }) {
 const getStyles = (darkMode) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: darkMode ? '#1A202C' : '#F7FAFC',
+    backgroundColor: darkMode ? '#1a1a1a' : '#f5f5f5',
     padding: 20,
   },
   header: {
@@ -114,21 +279,21 @@ const getStyles = (darkMode) => StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: darkMode ? '#E2E8F0' : '#2D3748',
+    color: darkMode ? '#fff' : '#000',
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: darkMode ? '#A0AEC0' : '#4A5568',
+    color: darkMode ? '#ccc' : '#666',
   },
   faqSection: {
-    backgroundColor: darkMode ? '#2D3748' : '#FFFFFF',
+    backgroundColor: darkMode ? '#333' : '#fff',
     borderRadius: 12,
     marginBottom: 20,
   },
   faqItem: {
     borderBottomWidth: 1,
-    borderBottomColor: darkMode ? '#4A5568' : '#E2E8F0',
+    borderBottomColor: darkMode ? '#444' : '#e0e0e0',
   },
   questionContainer: {
     flexDirection: 'row',
@@ -139,26 +304,26 @@ const getStyles = (darkMode) => StyleSheet.create({
   questionText: {
     fontSize: 16,
     fontWeight: '600',
-    color: darkMode ? '#E2E8F0' : '#2D3748',
+    color: darkMode ? '#fff' : '#000',
     flex: 1,
     marginRight: 10,
   },
   expandIcon: {
     fontSize: 12,
-    color: darkMode ? '#A0AEC0' : '#4A5568',
+    color: darkMode ? '#ccc' : '#666',
   },
   answerContainer: {
     padding: 16,
     paddingTop: 0,
-    backgroundColor: darkMode ? '#374151' : '#F7FAFC',
+    backgroundColor: darkMode ? '#444' : '#f5f5f5',
   },
   answerText: {
     fontSize: 14,
-    color: darkMode ? '#E2E8F0' : '#2D3748',
+    color: darkMode ? '#fff' : '#000',
     lineHeight: 20,
   },
   contactSection: {
-    backgroundColor: darkMode ? '#2D3748' : '#FFFFFF',
+    backgroundColor: darkMode ? '#333' : '#fff',
     padding: 20,
     borderRadius: 12,
     alignItems: 'center',
@@ -166,13 +331,66 @@ const getStyles = (darkMode) => StyleSheet.create({
   contactTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: darkMode ? '#E2E8F0' : '#2D3748',
+    color: darkMode ? '#fff' : '#000',
     marginBottom: 8,
   },
   contactText: {
     fontSize: 14,
-    color: darkMode ? '#A0AEC0' : '#4A5568',
+    color: darkMode ? '#ccc' : '#666',
     textAlign: 'center',
     lineHeight: 20,
+  },
+  dangerZone: {
+    backgroundColor: darkMode ? '#333' : '#fff',
+    padding: 20,
+    borderRadius: 12,
+    marginTop: 20,
+    borderWidth: 2,
+    borderColor: '#DC2626',
+  },
+  dangerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#DC2626',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  deleteConfirmContainer: {
+    gap: 10,
+  },
+  deleteWarning: {
+    fontSize: 14,
+    color: darkMode ? '#fff' : '#000',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  passwordInput: {
+    backgroundColor: darkMode ? '#555' : '#f5f5f5',
+    color: darkMode ? '#fff' : '#000',
+    padding: 12,
+    borderRadius: 8,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: darkMode ? '#666' : '#ddd',
+  },
+  deleteButtonRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: darkMode ? '#555' : '#e0e0e0',
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: darkMode ? '#fff' : '#000',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
 });

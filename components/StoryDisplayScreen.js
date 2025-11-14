@@ -6,7 +6,8 @@ export default function StoryDisplayScreen({
   story, 
   onClose, 
   darkMode, 
-  fontSize = 16 
+  fontSize = 16,
+  isSubscribed = true
 }) {
   const [currentFontSize, setCurrentFontSize] = useState(fontSize);
 
@@ -17,7 +18,6 @@ export default function StoryDisplayScreen({
         title: 'My Bedtime Story',
       });
     } catch (error) {
-      console.error('Error sharing story:', error);
     }
   };
 
@@ -67,6 +67,13 @@ export default function StoryDisplayScreen({
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Banner Ad Placeholder for Free/Guest Users */}
+      {!isSubscribed && (
+        <View style={styles.bannerAdPlaceholder}>
+          <Text style={styles.bannerAdText}>📱 Ad Space - AdMob Banner</Text>
+        </View>
+      )}
 
       <View style={styles.fontControls}>
         <TouchableOpacity 
@@ -153,5 +160,21 @@ const getStyles = (darkMode) => StyleSheet.create({
     backgroundColor: darkMode ? '#111' : '#f8f9fa',
     margin: 20,
     borderRadius: 10,
+  },
+  bannerAdPlaceholder: {
+    backgroundColor: darkMode ? '#333' : '#e0e0e0',
+    padding: 15,
+    marginHorizontal: 20,
+    marginTop: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: darkMode ? '#555' : '#ccc',
+    borderStyle: 'dashed',
+  },
+  bannerAdText: {
+    color: darkMode ? '#999' : '#666',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });

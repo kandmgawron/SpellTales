@@ -1,8 +1,16 @@
 import React from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 
-export default function UpgradeModal({ visible, onClose, onSubscribe, darkMode }) {
+export default function UpgradeModal({ visible, onClose, onSubscribe, onSignUp, darkMode, isGuestMode }) {
   const styles = getStyles(darkMode);
+  
+  const handleSubscribe = () => {
+    if (isGuestMode && onSignUp) {
+      onSignUp();
+    } else {
+      onSubscribe();
+    }
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent={true}>
@@ -29,8 +37,10 @@ export default function UpgradeModal({ visible, onClose, onSubscribe, darkMode }
             <Text style={styles.priceDesc}>Cancel anytime</Text>
           </View>
 
-          <TouchableOpacity style={styles.subscribeBtn} onPress={onSubscribe}>
-            <Text style={styles.subscribeBtnText}>⭐ Subscribe Now</Text>
+          <TouchableOpacity style={styles.subscribeBtn} onPress={handleSubscribe}>
+            <Text style={styles.subscribeBtnText}>
+              {isGuestMode ? '📝 Sign Up to Subscribe' : '⭐ Subscribe Now'}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>

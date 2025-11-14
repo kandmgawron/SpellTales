@@ -1,14 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Modal } from 'react-native';
+import { createGlobalStyles } from './styles/GlobalStyles';
+import { checkBiometricSupport, authenticateWithBiometrics } from './utils/biometricAuth';
 
-export default function ProfileScreen({ darkMode, profiles, onProfilesChange, onBack, userEmail }) {
+export default function ProfileScreen({ darkMode, profiles, onProfilesChange, onDeleteProfile, onBack, userEmail, isOffline }) {
+  console.log('ProfileScreen mounted');
   const [newProfileName, setNewProfileName] = useState('');
   const [newProfileAge, setNewProfileAge] = useState('children');
   const [showAgeDropdown, setShowAgeDropdown] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [password, setPassword] = useState('');
   const [pendingAction, setPendingAction] = useState(null);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const globalStyles = createGlobalStyles(darkMode);
   const styles = getStyles(darkMode);
+
+  useEffect(() => {
+    checkBiometrics();
+  }, []);
+
+  const checkBiometrics = async () => {
+    const available = await checkBiometricSupport();
+    console.log('Biometric available in ProfileScreen:', available);
+    setBiometricAvailable(available);
+    console.log('Set biometricAvailable to:', available);
+  };
 
   const ageOptions = [
     { label: 'Toddlers (2-4)', value: 'toddlers' },
@@ -18,9 +34,19 @@ export default function ProfileScreen({ darkMode, profiles, onProfilesChange, on
   ];
 
   const requestPassword = (action) => {
-    setPendingAction(action);
+    setPendingAction(() => action);
     setShowPasswordModal(true);
     setPassword('');
+  };
+
+  const verifyWithBiometrics = async () => {
+    const authenticated = await authenticateWithBiometrics('Verify your identity');
+    if (authenticated && pendingAction) {
+      setShowPasswordModal(false);
+      pendingAction();
+      setPendingAction(null);
+      setPassword('');
+    }
   };
 
   const verifyPassword = async () => {
@@ -65,6 +91,11 @@ export default function ProfileScreen({ darkMode, profiles, onProfilesChange, on
       return;
     }
     
+    if (profiles.length >= 5) {
+      Alert.alert('Limit Reached', 'You can only create up to 5 profiles. Please delete an existing profile first.');
+      return;
+    }
+    
     if (profiles.some(p => p.name.toLowerCase() === newProfileName.trim().toLowerCase())) {
       Alert.alert('Error', 'Profile name already exists');
       return;
@@ -82,45 +113,76 @@ export default function ProfileScreen({ darkMode, profiles, onProfilesChange, on
     onProfilesChange([...profiles, newProfile]);
     setNewProfileName('');
     setNewProfileAge('children');
-    Alert.alert('Success', `Profile "${newProfile.name}" created!`);
   };
 
   const addProfile = () => {
-    requestPassword(addProfileAction);
+    addProfileAction();
   };
 
   const deleteProfile = (profileId) => {
-    const deleteAction = () => {
-      onProfilesChange(profiles.filter(p => p.id !== profileId));
-    };
-
     Alert.alert(
       'Delete Profile',
-      'Are you sure you want to delete this profile?',
+      'Are you sure you want to delete this profile? All saved stories and words will be permanently removed.',
       [
         { text: 'Cancel', style: 'cancel' },
         { 
           text: 'Delete', 
           style: 'destructive',
-          onPress: () => requestPassword(deleteAction)
+          onPress: () => requestPassword(() => onDeleteProfile(profileId))
         }
       ]
     );
   };
 
+  const editProfileAge = (profileId) => {
+    const profile = profiles.find(p => p.id === profileId);
+    if (!profile) return;
+    
+    Alert.alert(
+      'Change Age Rating',
+      'Select new age rating for this profile:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Toddlers (2-4)', onPress: () => requestPassword(() => {
+          updateProfileAge(profileId, 'toddlers');
+          Alert.alert('Success', 'Age rating updated successfully!');
+        }) },
+        { text: 'Children (5-8)', onPress: () => requestPassword(() => {
+          updateProfileAge(profileId, 'children');
+          Alert.alert('Success', 'Age rating updated successfully!');
+        }) },
+        { text: 'Young Teens (9-12)', onPress: () => requestPassword(() => {
+          updateProfileAge(profileId, 'young_teens');
+          Alert.alert('Success', 'Age rating updated successfully!');
+        }) },
+        { text: 'Teens (13-17)', onPress: () => requestPassword(() => {
+          updateProfileAge(profileId, 'teens');
+          Alert.alert('Success', 'Age rating updated successfully!');
+        }) }
+      ]
+    );
+  };
+
+  const updateProfileAge = (profileId, newAgeRating) => {
+    const updatedProfiles = profiles.map(p => 
+      p.id === profileId ? { ...p, ageRating: newAgeRating } : p
+    );
+    onProfilesChange(updatedProfiles);
+  };
+
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={onBack}>
-          <Text style={styles.backBtnText}>← Back</Text>
+    <ScrollView style={globalStyles.screenContainer}>
+      <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
+        <TouchableOpacity style={globalStyles.homeButton} onPress={onBack}>
+          <Text style={globalStyles.homeButtonText}>🏠 Home</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Child Profiles</Text>
+        <Text style={globalStyles.heading}>Child Profiles</Text>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Create New Profile</Text>
+      <View style={globalStyles.section}>
+        <Text style={globalStyles.cardTitle}>Create New Profile</Text>
         <TextInput
-          style={styles.input}
+          style={globalStyles.textInput}
           placeholder="Enter child's name"
           placeholderTextColor={darkMode ? '#999' : '#666'}
           value={newProfileName}
@@ -128,45 +190,61 @@ export default function ProfileScreen({ darkMode, profiles, onProfilesChange, on
         />
         
         <TouchableOpacity 
-          style={styles.dropdown}
+          style={globalStyles.genreDropdown}
           onPress={() => setShowAgeDropdown(true)}
         >
-          <Text style={styles.dropdownText}>
+          <Text style={globalStyles.dropdownText}>
             {ageOptions.find(a => a.value === newProfileAge)?.label || 'Select Age'}
           </Text>
-          <Text style={styles.dropdownArrow}>▼</Text>
+          <Text style={globalStyles.dropdownArrow}>▼</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.addBtn} onPress={addProfile}>
-          <Text style={styles.addBtnText}>+ Add Profile</Text>
+        <TouchableOpacity 
+          style={[globalStyles.primaryButton, isOffline && globalStyles.buttonDisabled]} 
+          onPress={() => isOffline ? Alert.alert('Offline', 'Profile creation requires internet connection') : addProfile()}
+          disabled={isOffline}
+        >
+          <Text style={globalStyles.buttonText}>Add Profile</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Existing Profiles ({profiles.length})</Text>
+      <View style={globalStyles.section}>
+        <Text style={globalStyles.cardTitle}>Existing Profiles ({profiles.length})</Text>
         {profiles.length === 0 ? (
-          <Text style={styles.emptyText}>
+          <Text style={globalStyles.description}>
             No profiles created yet. Stories will use global settings.
           </Text>
         ) : (
           profiles.map(profile => (
-            <View key={profile.id} style={styles.profileItem}>
+            <View key={profile.id} style={[globalStyles.card, styles.profileItem]}>
               <View style={styles.profileInfo}>
-                <Text style={styles.profileName}>👤 {profile.name}</Text>
-                <Text style={styles.profileDetails}>Age Rating: {profile.ageRating}</Text>
+                <Text style={globalStyles.bodyText}>👤 {profile.name}</Text>
+                <Text style={globalStyles.description}>
+                  {ageOptions.find(a => a.value === profile.ageRating)?.label || profile.ageRating}
+                </Text>
               </View>
-              <TouchableOpacity 
-                style={styles.deleteBtn}
-                onPress={() => deleteProfile(profile.id)}
-              >
-                <Text style={styles.deleteBtnText}>🗑️</Text>
-              </TouchableOpacity>
+              <View style={styles.profileActions}>
+                <TouchableOpacity 
+                  style={[styles.actionBtn, isOffline && {opacity: 0.5}]}
+                  onPress={() => isOffline ? Alert.alert('Offline', 'Profile editing requires internet connection') : editProfileAge(profile.id)}
+                  disabled={isOffline}
+                >
+                  <Text style={styles.actionBtnText}>✏️</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.actionBtn, isOffline && {opacity: 0.5}]}
+                  onPress={() => isOffline ? Alert.alert('Offline', 'Profile deletion requires internet connection') : deleteProfile(profile.id)}
+                  disabled={isOffline}
+                >
+                  <Text style={styles.actionBtnText}>🗑️</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           ))
         )}
       </View>
 
-      <View style={styles.infoBox}>
-        <Text style={styles.infoText}>
+      <View style={globalStyles.section}>
+        <Text style={globalStyles.description}>
           💡 Tip: If you have only one child, you don't need to create a profile. 
           The app will use your global age rating setting.
         </Text>
@@ -179,10 +257,10 @@ export default function ProfileScreen({ darkMode, profiles, onProfilesChange, on
         onRequestClose={() => setShowAgeDropdown(false)}
       >
         <TouchableOpacity 
-          style={styles.modalOverlay}
+          style={globalStyles.modalOverlay}
           onPress={() => setShowAgeDropdown(false)}
         >
-          <View style={styles.dropdownModal}>
+          <View style={globalStyles.modalContainer}>
             {ageOptions.map(option => (
               <TouchableOpacity
                 key={option.value}
@@ -192,7 +270,7 @@ export default function ProfileScreen({ darkMode, profiles, onProfilesChange, on
                   setShowAgeDropdown(false);
                 }}
               >
-                <Text style={styles.dropdownItemText}>{option.label}</Text>
+                <Text style={globalStyles.bodyText}>{option.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -205,11 +283,11 @@ export default function ProfileScreen({ darkMode, profiles, onProfilesChange, on
         animationType="fade"
         onRequestClose={() => setShowPasswordModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.passwordModal}>
-            <Text style={styles.passwordTitle}>Enter Your Login Password</Text>
+        <View style={globalStyles.modalOverlay}>
+          <View style={globalStyles.modalContainer}>
+            <Text style={globalStyles.modalTitle}>Enter Your Login Password</Text>
             <TextInput
-              style={styles.passwordInput}
+              style={globalStyles.passwordInput}
               placeholder="Enter password"
               placeholderTextColor={darkMode ? '#999' : '#666'}
               value={password}
@@ -219,18 +297,27 @@ export default function ProfileScreen({ darkMode, profiles, onProfilesChange, on
             />
             <View style={styles.passwordButtons}>
               <TouchableOpacity 
-                style={[styles.passwordBtn, styles.cancelBtn]}
+                style={[globalStyles.outlineButton, {flex: 1}]}
                 onPress={() => setShowPasswordModal(false)}
               >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
+                <Text style={globalStyles.outlineButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={[styles.passwordBtn, styles.confirmBtn]}
+                style={[globalStyles.primaryButton, {flex: 1}]}
                 onPress={verifyPassword}
               >
-                <Text style={styles.confirmBtnText}>Confirm</Text>
+                <Text style={globalStyles.buttonText}>Confirm</Text>
               </TouchableOpacity>
             </View>
+            {console.log('Rendering modal, biometricAvailable:', biometricAvailable)}
+            {biometricAvailable && (
+              <TouchableOpacity 
+                style={[globalStyles.linkButton, {marginTop: 10}]}
+                onPress={verifyWithBiometrics}
+              >
+                <Text style={globalStyles.linkButtonText}>🔐 Use Face ID / Touch ID</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </Modal>
@@ -239,71 +326,15 @@ export default function ProfileScreen({ darkMode, profiles, onProfilesChange, on
 }
 
 const getStyles = (darkMode) => StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: 'transparent',
-    padding: 20,
-    paddingTop: 60,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 20,
   },
-  backBtn: {
-    backgroundColor: darkMode ? '#444' : '#e0e0e0',
-    padding: 8,
-    borderRadius: 5,
-    marginRight: 15,
-  },
-  backBtnText: {
-    color: darkMode ? '#fff' : '#000',
-    fontSize: 16,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: darkMode ? '#fff' : '#000',
-  },
-  section: {
-    marginBottom: 30,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: darkMode ? '#fff' : '#000',
-    marginBottom: 15,
-  },
-  input: {
-    backgroundColor: darkMode ? '#333' : '#fff',
-    color: darkMode ? '#fff' : '#000',
-    padding: 12,
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: darkMode ? '#555' : '#ddd',
-    marginBottom: 10,
-  },
-  addBtn: {
-    backgroundColor: '#4CAF50',
-    padding: 12,
-    borderRadius: 5,
-    alignItems: 'center',
-  },
-  addBtnText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  emptyText: {
-    color: darkMode ? '#ccc' : '#666',
-    fontStyle: 'italic',
-    textAlign: 'center',
-    padding: 20,
-  },
   profileItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: darkMode ? '#333' : '#f8f9fa',
     padding: 15,
     borderRadius: 8,
     marginBottom: 10,
@@ -311,120 +342,23 @@ const getStyles = (darkMode) => StyleSheet.create({
   profileInfo: {
     flex: 1,
   },
-  profileName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: darkMode ? '#fff' : '#000',
+  profileActions: {
+    flexDirection: 'row',
+    gap: 5,
   },
-  profileDetails: {
-    fontSize: 14,
-    color: darkMode ? '#ccc' : '#666',
-    marginTop: 2,
-  },
-  deleteBtn: {
+  actionBtn: {
     padding: 8,
   },
-  deleteBtnText: {
-    fontSize: 18,
-  },
-  infoBox: {
-    backgroundColor: darkMode ? '#2a4a6b' : '#e3f2fd',
-    padding: 15,
-    borderRadius: 8,
-    marginTop: 20,
-  },
-  dropdown: {
-    backgroundColor: darkMode ? '#333' : '#fff',
-    borderWidth: 1,
-    borderColor: darkMode ? '#555' : '#ddd',
-    borderRadius: 5,
-    padding: 12,
-    marginBottom: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  dropdownText: {
-    color: darkMode ? '#fff' : '#000',
-    fontSize: 16,
-  },
-  dropdownArrow: {
-    color: darkMode ? '#fff' : '#000',
-    fontSize: 16,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  dropdownModal: {
-    backgroundColor: darkMode ? '#333' : '#fff',
-    borderRadius: 10,
-    margin: 20,
-    maxHeight: 300,
+  actionBtnText: {
+    fontSize: 20,
   },
   dropdownItem: {
     padding: 15,
     borderBottomWidth: 1,
     borderBottomColor: darkMode ? '#555' : '#eee',
   },
-  dropdownItemText: {
-    color: darkMode ? '#fff' : '#000',
-    fontSize: 16,
-  },
-  passwordModal: {
-    backgroundColor: darkMode ? '#333' : '#fff',
-    borderRadius: 10,
-    padding: 20,
-    margin: 20,
-    minWidth: 300,
-  },
-  passwordTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: darkMode ? '#fff' : '#000',
-    textAlign: 'center',
-    marginBottom: 15,
-  },
-  passwordInput: {
-    backgroundColor: darkMode ? '#444' : '#f5f5f5',
-    color: darkMode ? '#fff' : '#000',
-    padding: 12,
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: darkMode ? '#555' : '#ddd',
-    marginBottom: 15,
-    fontSize: 16,
-  },
   passwordButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     gap: 10,
-  },
-  passwordBtn: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 5,
-    alignItems: 'center',
-  },
-  cancelBtn: {
-    backgroundColor: darkMode ? '#555' : '#ddd',
-  },
-  confirmBtn: {
-    backgroundColor: '#4CAF50',
-  },
-  cancelBtnText: {
-    color: darkMode ? '#fff' : '#000',
-    fontWeight: 'bold',
-  },
-  confirmBtnText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  infoText: {
-    color: darkMode ? '#87ceeb' : '#1976d2',
-    fontSize: 14,
-    lineHeight: 20,
   },
 });

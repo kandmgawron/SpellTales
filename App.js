@@ -1,8 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, Modal, AppState, ImageBackground } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import * as Network from 'expo-network';
 import { useFonts, Chewy_400Regular } from '@expo-google-fonts/chewy';
+import { Nunito_600SemiBold } from '@expo-google-fonts/nunito';
 import Markdown from 'react-native-markdown-display';
+import { clearBiometricCredentials } from './utils/biometricAuth';
 import AuthScreen from './AuthScreen';
 import ManageWordsScreen from './ManageWordsScreen';
 import AgeRatingScreen from './AgeRatingScreen';
@@ -20,23 +23,28 @@ import CustomSplashScreen from './components/SplashScreen';
 import ProfileScreen from './ProfileScreen';
 import StoryDisplayScreen from './components/StoryDisplayScreen';
 import VisualStoryCreator from './components/VisualStoryCreator';
-import { generateStoryAPI } from './config';
+import { generateStoryAPI, LAMBDA_URL } from './config';
 import { rateLimiter } from './utils/rateLimiter';
 import { validateInput } from './utils/security';
 import { SubscriptionService } from './services/SubscriptionService';
 import { AdService } from './services/AdService';
+import { createGlobalStyles } from './styles/GlobalStyles';
 
 export default function App() {
   let [fontsLoaded] = useFonts({
     Chewy_400Regular,
+    Nunito_600SemiBold,
   });
+
+  const [darkMode, setDarkMode] = useState(true);
+  const globalStyles = useMemo(() => createGlobalStyles(darkMode), [darkMode]);
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [accessToken, setAccessToken] = useState('');
-  const [darkMode, setDarkMode] = useState(true);
   const [currentScreen, setCurrentScreen] = useState('stories'); // 'stories', 'words', 'age-rating', 'saved-stories', 'support', 'faq', 'visual', 'story-display', 'profiles'
   const [currentProfile, setCurrentProfile] = useState(null);
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
   const [profiles, setProfiles] = useState([]);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [showGenreDropdown, setShowGenreDropdown] = useState(false);
@@ -60,6 +68,16 @@ export default function App() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [initialAuthMode, setInitialAuthMode] = useState('welcome');
+  const [isOffline, setIsOffline] = useState(false);
+
+  // Helper to create user-specific SecureStore keys
+  const getUserKey = (key) => {
+    if (!userEmail || isGuestMode) return key; // Guest uses global keys
+    // Sanitize email: replace @ and other invalid chars with underscore
+    const sanitizedEmail = userEmail.replace(/[^a-zA-Z0-9._-]/g, '_');
+    return `${sanitizedEmail}_${key}`;
+  };
 
   const getGenresForAge = (ageRating) => {
     const baseGenres = [{ label: 'Random Genre', value: 'random' }];
@@ -72,6 +90,11 @@ export default function App() {
         { label: 'Silly & Fun', value: 'silly' },
         { label: 'Bedtime', value: 'bedtime' },
         { label: 'Family', value: 'family' },
+        { label: 'Nature', value: 'nature' },
+        { label: 'Colours', value: 'colours' },
+        { label: 'Shapes', value: 'shapes' },
+        { label: 'Music', value: 'music' },
+        { label: 'Counting', value: 'counting' },
       ]);
     } else if (ageRating === 'children') {
       return baseGenres.concat([
@@ -83,6 +106,9 @@ export default function App() {
         { label: 'Animals', value: 'animals' },
         { label: 'Silly & Fun', value: 'silly' },
         { label: 'Space', value: 'space' },
+        { label: 'Pirates', value: 'pirates' },
+        { label: 'Dragons', value: 'dragons' },
+        { label: 'Underwater', value: 'underwater' },
       ]);
     } else if (ageRating === 'young_teens') {
       return baseGenres.concat([
@@ -94,6 +120,9 @@ export default function App() {
         { label: 'Space', value: 'space' },
         { label: 'Time Travel', value: 'time-travel' },
         { label: 'Superhero', value: 'superhero' },
+        { label: 'Sports', value: 'sports' },
+        { label: 'School', value: 'school' },
+        { label: 'Survival', value: 'survival' },
       ]);
     } else { // teens
       return baseGenres.concat([
@@ -106,6 +135,8 @@ export default function App() {
         { label: 'Identity', value: 'identity' },
         { label: 'Independence', value: 'independence' },
         { label: 'Relationships', value: 'relationships' },
+        { label: 'Dystopian', value: 'dystopian' },
+        { label: 'Thriller', value: 'thriller' },
       ]);
     }
   };
@@ -114,56 +145,65 @@ export default function App() {
 
   // Get current age rating (from profile or global)
   const loadUserWords = async () => {
-    if (!userEmail || isGuestMode) {
-      console.log('loadUserWords: No userEmail or guest mode, returning empty array');
+    if (!userEmail || isGuestMode || !currentProfile?.id) {
       return [];
     }
     
-    console.log('loadUserWords: Loading words for', userEmail);
     
     try {
-      const response = await fetch(process.env.EXPO_PUBLIC_LAMBDA_URL, {
+      if (!LAMBDA_URL) {
+        setUserWords([]);
+        return [];
+      }
+
+      const response = await fetch(LAMBDA_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'get_user_words',
-          userEmail: userEmail
+          action: 'get_words',
+          userEmail: userEmail,
+          profileId: currentProfile.id
         })
       });
 
+      if (!response.ok) {
+        setUserWords([]);
+        return [];
+      }
+
       const result = await response.json();
-      console.log('loadUserWords: API response', result);
       
       if (result.success && result.words) {
-        console.log('loadUserWords: Returning words', result.words);
-        setUserWords(result.words); // Update state for other uses
+        setUserWords(result.words);
         return result.words;
       } else {
-        console.log('loadUserWords: No words found, returning empty array');
         setUserWords([]);
         return [];
       }
     } catch (error) {
-      console.log('Error loading user words:', error);
       setUserWords([]);
       return [];
     }
   };
 
   const getCurrentAgeRating = () => {
+    if (isGuestMode) return 'toddlers'; // Guest users fixed at toddler level
     return currentProfile ? currentProfile.ageRating : currentAgeRating;
   };
 
   const genres = getGenresForAge(getCurrentAgeRating());
 
   useEffect(() => {
+    // Debug: Check if profiles exist at app start
+    SecureStore.getItemAsync(getUserKey('childProfiles')).then(profiles => {
+    });
+    
     checkAuthState();
     loadAgeRating();
     loadProfiles();
     
     // Initialize ad service
     AdService.initialize().catch(error => {
-      console.error('Failed to initialize ads:', error);
     });
 
     // Show splash screen for 2 seconds
@@ -185,6 +225,31 @@ export default function App() {
     return () => subscription?.remove();
   }, []);
 
+  // Monitor network status
+  useEffect(() => {
+    const checkNetwork = async () => {
+      try {
+        const networkState = await Network.getNetworkStateAsync();
+        setIsOffline(!networkState.isConnected);
+      } catch (error) {
+        setIsOffline(false); // Assume online if check fails
+      }
+    };
+    
+    checkNetwork();
+    const interval = setInterval(checkNetwork, 5000); // Check every 5 seconds
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  // Reload profiles when subscription status or guest mode changes
+  useEffect(() => {
+    // Load from DynamoDB only once per session (on app start)
+    if (subscriptionStatus !== null && (userEmail || isGuestMode) && !profilesLoaded) {
+      loadProfiles();
+    }
+  }, [subscriptionStatus, isGuestMode, userEmail]);
+
   const loadAgeRating = async () => {
     try {
       const rating = await SecureStore.getItemAsync('ageRating');
@@ -192,7 +257,6 @@ export default function App() {
         setCurrentAgeRating(rating);
       }
     } catch (error) {
-      console.error('Error loading age rating:', error);
     }
   };
 
@@ -237,9 +301,15 @@ export default function App() {
 
   const handleAuthSuccess = async (authResult, email, isGuest = false) => {
     try {
-      // Clear previous user's story
+      // Clear previous user's data for privacy
       setStory('');
+      setProfiles([]);
+      setCurrentProfile(null);
       setCurrentScreen('stories');
+      
+      // Show upgrade modal for new signups
+      const isNewSignup = initialAuthMode === 'signup';
+      setInitialAuthMode('welcome');
       
       if (isGuest) {
         setIsGuestMode(true);
@@ -266,6 +336,14 @@ export default function App() {
       
       loadLastStory();
       loadUserWords();
+      
+      // Load user's profiles from DynamoDB after authentication
+      loadProfiles();
+      
+      // Show upgrade modal for new signups
+      if (isNewSignup) {
+        setTimeout(() => setShowUpgradeModal(true), 500);
+      }
     } catch (error) {
       // Silent fail for auth success
     }
@@ -276,11 +354,17 @@ export default function App() {
       if (!isGuestMode) {
         await SecureStore.deleteItemAsync('accessToken');
         await SecureStore.deleteItemAsync('userEmail');
+        await clearBiometricCredentials();
+        // Don't delete profiles - they persist for when user logs back in
+        // await SecureStore.deleteItemAsync(getUserKey('childProfiles'));
+        // await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
       }
       setIsAuthenticated(false);
       setUserEmail('');
       setAccessToken('');
       setIsGuestMode(false);
+      setProfiles([]); // Clear from state but not from storage
+      setCurrentProfile(null);
       setStory('');
     } catch (error) {
       // Silent fail for auth check
@@ -361,23 +445,12 @@ export default function App() {
     }
   };
 
-  const handleVisualStoryGenerate = (character1, character2, keyword1) => {
-    // Map keyword to appropriate genre for better loading message
-    const keywordToGenre = {
-      'Forest': 'adventure',
-      'Castle': 'fairy-tale', 
-      'Ocean': 'adventure',
-      'Space': 'space',
-      'Treasure': 'adventure',
-      'Magic': 'magic'
-    };
-    
-    // Set genre based on keyword for better loading message
-    const mappedGenre = keywordToGenre[keyword1] || 'adventure';
-    setGenre(mappedGenre);
+  const handleVisualStoryGenerate = (genre, character1, character2, keyword1, keyword2 = '', keyword3 = '') => {
+    // Set the genre
+    setGenre(genre);
     
     // Call the unified story creation function directly
-    createStory(character1, character2, keyword1);
+    createStory(character1, character2, keyword1, keyword2, keyword3);
   };
 
   const createStory = async (character1, character2, keyword1, keyword2 = '', keyword3 = '') => {
@@ -421,10 +494,15 @@ export default function App() {
       return;
     }
 
+    setIsGenerating(true);
+    
+    // Create timeout promise
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Request timeout')), 30000) // 30 second timeout
+    );
+    
     // Load user words before generating story
     const currentUserWords = await loadUserWords();
-
-    setIsGenerating(true);
     setGenerationError(null);
     setRetryData({ char1, char2, key1, key2, key3 });
     
@@ -436,7 +514,9 @@ export default function App() {
       keyword2: key2?.trim() || '',
       keyword3: key3?.trim() || '',
       genre: genre,
-      ageRating: isGuestMode ? 'toddlers' : getCurrentAgeRating()
+      ageRating: isGuestMode ? 'toddlers' : getCurrentAgeRating(),
+      profileId: currentProfile?.id || null,
+      profileName: currentProfile?.name || 'Global'
     };
     
     try {
@@ -453,20 +533,28 @@ export default function App() {
         },
         userEmail: userEmail,
         ageRating: isGuestMode ? 'toddlers' : getCurrentAgeRating(),
+        profileId: currentProfile?.id || null,
+        profileName: currentProfile?.name || 'Global',
         spellingWords: (() => {
           if (isGuestMode) {
-            console.log('Story generation: Guest mode - no spelling words');
             return [];
           }
-          console.log('Story generation: currentUserWords =', currentUserWords);
           const words = currentUserWords.length > 0 ? currentUserWords : [];
-          console.log('Story generation: using words =', words);
           return words;
         })()
       };
       
-      const response = await generateStoryAPI(storyData);
+      console.log('Calling generateStoryAPI with data:', JSON.stringify(storyData).substring(0, 200));
+      
+      // Race between API call and timeout
+      const response = await Promise.race([
+        generateStoryAPI(storyData),
+        timeoutPromise
+      ]);
+      
+      console.log('Response received:', typeof response, Object.keys(response || {}));
       const storyText = response.story || response.body || JSON.parse(response.body || '{}').story;
+      console.log('Story text extracted, length:', storyText?.length);
       
       // Check if the response contains a guardrail block message
       const isGuardrailResponse = storyText?.includes('inappropriate content') || 
@@ -474,6 +562,7 @@ export default function App() {
                                  storyText?.includes('try again with different words');
       
       if (storyText && !isGuardrailResponse) {
+        console.log('Story valid, saving and displaying');
         // Save successful story with metadata
         await saveStoryAutomatically({
           ...storyMetadata,
@@ -499,7 +588,9 @@ export default function App() {
         throw new Error('No story content received');
       }
     } catch (error) {
-      console.error('Story generation error:', error);
+      
+      // Check if it's a timeout error
+      const isTimeout = error.message === 'Request timeout';
       
       // Save failed attempt with metadata
       const isGuardrailBlock = error.message?.includes('inappropriate') || 
@@ -509,7 +600,9 @@ export default function App() {
                               storyText?.includes('inappropriate content') ||
                               storyText?.includes('blocked by content filters');
       
-      const failureMessage = isGuardrailBlock
+      const failureMessage = isTimeout
+        ? 'Story generation timed out. Please check your internet connection and try again.'
+        : isGuardrailBlock
         ? 'Story generation was blocked by content filters. Please try different characters or keywords.'
         : 'Story generation failed due to a technical error.';
       
@@ -518,7 +611,7 @@ export default function App() {
         content: failureMessage,
         status: 'failed',
         error: error.message,
-        failureType: isGuardrailBlock ? 'guardrail_block' : 'technical_error'
+        failureType: isTimeout ? 'timeout' : isGuardrailBlock ? 'guardrail_block' : 'technical_error'
       });
       
       setGenerationError(failureMessage);
@@ -528,10 +621,17 @@ export default function App() {
 
   const saveStoryAutomatically = async (storyData) => {
     try {
+      // Add profile information to story
+      const storyWithProfile = {
+        ...storyData,
+        profileId: currentProfile?.id || null,
+        profileName: currentProfile?.name || 'Global'
+      };
+      
       const existingStories = await SecureStore.getItemAsync('savedStories');
       const stories = existingStories ? JSON.parse(existingStories) : [];
       
-      stories.unshift(storyData); // Add to beginning of array
+      stories.unshift(storyWithProfile); // Add to beginning of array
       
       // Keep only last 50 stories to prevent storage issues
       if (stories.length > 50) {
@@ -540,7 +640,6 @@ export default function App() {
       
       await SecureStore.setItemAsync('savedStories', JSON.stringify(stories));
     } catch (error) {
-      console.error('Error saving story:', error);
     }
   };
 
@@ -575,7 +674,38 @@ export default function App() {
   };
   
   const handleMenuAge = () => {
-    requestPassword(() => setCurrentScreen('age-rating'));
+    if (currentProfile) {
+      // If there's an active profile, show age selection first
+      Alert.alert(
+        'Change Age Rating',
+        `Select new age rating for ${currentProfile.name}:`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Toddlers (2-4)', onPress: () => requestPasswordForAgeChange('toddlers') },
+          { text: 'Children (5-8)', onPress: () => requestPasswordForAgeChange('children') },
+          { text: 'Young Teens (9-12)', onPress: () => requestPasswordForAgeChange('young_teens') },
+          { text: 'Teens (13-17)', onPress: () => requestPasswordForAgeChange('teens') }
+        ]
+      );
+    } else {
+      // No active profile, go to global age rating screen
+      requestPassword(() => setCurrentScreen('age-rating'));
+    }
+  };
+
+  const requestPasswordForAgeChange = (newAgeRating) => {
+    requestPassword(() => updateCurrentProfileAge(newAgeRating));
+  };
+
+  const updateCurrentProfileAge = (newAgeRating) => {
+    const updatedProfiles = profiles.map(p => 
+      p.id === currentProfile.id ? { ...p, ageRating: newAgeRating } : p
+    );
+    const updatedCurrentProfile = { ...currentProfile, ageRating: newAgeRating };
+    
+    saveProfiles(updatedProfiles);
+    saveCurrentProfile(updatedCurrentProfile);
+    Alert.alert('Success', 'Age rating updated successfully!');
   };
   
   const handleMenuSavedStories = () => {
@@ -584,47 +714,275 @@ export default function App() {
   const handleMenuSupport = () => setCurrentScreen('support');
   const handleMenuFAQ = () => setCurrentScreen('faq');
   const handleMenuDarkMode = () => setDarkMode(!darkMode);
+  const deleteProfileDataFromDynamoDB = async (profileId) => {
+    if (!userEmail || isGuestMode) return true; // Skip for guests
+    
+    try {
+      
+      const response = await fetch(LAMBDA_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'delete_profile_data',
+          userEmail: userEmail,
+          profileId: profileId
+        })
+      });
+      
+      if (!response.ok) {
+        return false;
+      }
+      
+      const result = await response.json();
+      
+      if (!result.success) {
+        return false;
+      }
+      
+      return true;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  const saveProfilesToDynamoDB = async (profiles) => {
+    if (!userEmail || isGuestMode) {
+      console.log('saveProfilesToDynamoDB: Skipped - no email or guest mode');
+      return;
+    }
+    
+    console.log('saveProfilesToDynamoDB: Starting save for', userEmail, 'with', profiles.length, 'profiles');
+    
+    try {
+      if (!LAMBDA_URL) {
+        console.log('saveProfilesToDynamoDB: No LAMBDA_URL');
+        return;
+      }
+
+      const response = await fetch(LAMBDA_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save_user_profiles',
+          userEmail: userEmail,
+          profiles: profiles
+        })
+      });
+      
+      console.log('saveProfilesToDynamoDB: Response status', response.status);
+      
+      if (!response.ok) {
+        console.log('saveProfilesToDynamoDB: Response not OK');
+        return;
+      }
+      
+      const result = await response.json();
+      console.log('saveProfilesToDynamoDB: Result', result);
+      
+      if (!result.success) {
+        console.log('saveProfilesToDynamoDB: Save failed', result.error);
+      } else {
+        console.log('saveProfilesToDynamoDB: Save successful');
+      }
+    } catch (error) {
+      console.log('saveProfilesToDynamoDB: Error', error);
+    }
+  };
+
+  const loadProfilesFromDynamoDB = async () => {
+    if (!userEmail || isGuestMode) return [];
+    
+    try {
+      const response = await fetch(LAMBDA_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'get_user_profiles',
+          userEmail: userEmail
+        })
+      });
+      
+      const result = await response.json();
+      if (result.success && result.profiles) {
+        return result.profiles;
+      }
+      return [];
+    } catch (error) {
+      return [];
+    }
+  };
   const loadProfiles = async () => {
     try {
-      const savedProfiles = await SecureStore.getItemAsync('childProfiles');
-      const savedCurrentProfile = await SecureStore.getItemAsync('currentProfile');
+      
+      // Wait for subscription status to be loaded before making decisions
+      if (subscriptionStatus === null) {
+        return;
+      }
+      
+      // Only show profiles for premium users
+      if (isGuestMode || !userEmail || !subscriptionStatus.isSubscribed) {
+        setProfiles([]);
+        setCurrentProfile(null);
+        return;
+      }
+      
+      // Load from DynamoDB first (source of truth)
+      try {
+        const response = await fetch(LAMBDA_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'get_user_profiles',
+            userEmail: userEmail
+          })
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.profiles) {
+            // DynamoDB is source of truth - save to SecureStore for fast access
+            await SecureStore.setItemAsync(getUserKey('childProfiles'), JSON.stringify(result.profiles));
+            setProfiles(result.profiles);
+            setProfilesLoaded(true);
+            
+            // Load current profile from SecureStore
+            const savedCurrentProfile = await SecureStore.getItemAsync(getUserKey('currentProfile'));
+            if (savedCurrentProfile) {
+              const currentProfileData = JSON.parse(savedCurrentProfile);
+              const foundProfile = result.profiles.find(p => p.id === currentProfileData.id);
+              if (foundProfile) {
+                setCurrentProfile(foundProfile);
+              } else {
+                setCurrentProfile(null);
+                await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
+              }
+            }
+            return;
+          }
+        }
+      } catch (dbError) {
+        // DynamoDB failed, fall back to SecureStore
+      }
+      
+      // Fallback: Load from SecureStore if DynamoDB fails
+      const savedProfiles = await SecureStore.getItemAsync(getUserKey('childProfiles'));
+      const savedCurrentProfile = await SecureStore.getItemAsync(getUserKey('currentProfile'));
       
       if (savedProfiles) {
         const profilesData = JSON.parse(savedProfiles);
         setProfiles(profilesData);
+        setProfilesLoaded(true);
         
         if (savedCurrentProfile) {
           const currentProfileData = JSON.parse(savedCurrentProfile);
           const foundProfile = profilesData.find(p => p.id === currentProfileData.id);
           if (foundProfile) {
             setCurrentProfile(foundProfile);
+          } else {
+            setCurrentProfile(null);
+            await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
           }
         }
+      } else {
+        setCurrentProfile(null);
       }
     } catch (error) {
-      console.log('Error loading profiles:', error);
+    }
+  };
+
+  const deleteProfile = async (profileId) => {
+    try {
+      // First try to delete from DynamoDB
+      const dynamoSuccess = await deleteProfileDataFromDynamoDB(profileId);
+      
+      if (!dynamoSuccess) {
+        Alert.alert(
+          'Connection Error', 
+          'Unable to delete profile data from server. Please check your internet connection and try again.',
+          [{ text: 'OK' }]
+        );
+        return false;
+      }
+      
+      // Delete from SecureStore
+      const currentProfiles = profiles;
+      const profileToDelete = currentProfiles.find(p => p.id === profileId);
+      
+      if (profileToDelete) {
+        // Remove saved stories for this profile from SecureStore
+        try {
+          const savedStoriesKey = `savedStories_${userEmail}_${profileId}`;
+          await SecureStore.deleteItemAsync(savedStoriesKey);
+        } catch (error) {
+        }
+        
+        // Remove words for this profile from SecureStore  
+        try {
+          const wordsKey = `userWords_${userEmail}_${profileId}`;
+          await SecureStore.deleteItemAsync(wordsKey);
+        } catch (error) {
+        }
+      }
+      
+      // Remove profile from profiles array
+      const updatedProfiles = currentProfiles.filter(p => p.id !== profileId);
+      
+      // If deleting current profile, clear it
+      if (currentProfile?.id === profileId) {
+        setCurrentProfile(null);
+        await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
+      }
+      
+      // Save updated profiles
+      await saveProfiles(updatedProfiles);
+      
+      return true;
+    } catch (error) {
+      Alert.alert('Error', 'Failed to delete profile. Please try again.');
+      return false;
     }
   };
 
   const saveProfiles = async (newProfiles) => {
+    console.log('saveProfiles: Called with', newProfiles.length, 'profiles');
+    console.log('saveProfiles: isGuestMode=', isGuestMode, 'isSubscribed=', subscriptionStatus?.isSubscribed);
+    
     try {
-      await SecureStore.setItemAsync('childProfiles', JSON.stringify(newProfiles));
       setProfiles(newProfiles);
+      
+      // Only premium users save to SecureStore and DynamoDB
+      if (isGuestMode || !subscriptionStatus?.isSubscribed) {
+        console.log('saveProfiles: Skipping save - not premium');
+        return;
+      }
+      
+      console.log('saveProfiles: Saving to SecureStore');
+      // Save to SecureStore for immediate access with user-specific key
+      await SecureStore.setItemAsync(getUserKey('childProfiles'), JSON.stringify(newProfiles));
+      
+      console.log('saveProfiles: Calling saveProfilesToDynamoDB');
+      // Save to DynamoDB for persistence across devices/sessions
+      await saveProfilesToDynamoDB(newProfiles);
     } catch (error) {
-      console.log('Error saving profiles:', error);
+      console.log('saveProfiles: Error', error);
     }
   };
 
   const saveCurrentProfile = async (profile) => {
     try {
+      // Only premium users can save profiles
+      if (isGuestMode || !subscriptionStatus?.isSubscribed) {
+        setCurrentProfile(null);
+        return;
+      }
+      
       if (profile) {
-        await SecureStore.setItemAsync('currentProfile', JSON.stringify(profile));
+        await SecureStore.setItemAsync(getUserKey('currentProfile'), JSON.stringify(profile));
       } else {
-        await SecureStore.deleteItemAsync('currentProfile');
+        await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
       }
       setCurrentProfile(profile);
     } catch (error) {
-      console.log('Error saving current profile:', error);
     }
   };
 
@@ -675,17 +1033,17 @@ export default function App() {
   };
 
   const handleMenuProfiles = () => {
-    requestPassword(() => setCurrentScreen('profiles'));
+    setCurrentScreen('profiles');
   };
 
   const handleMenuSignOut = async () => {
     try {
       await SecureStore.deleteItemAsync('accessToken');
       await SecureStore.deleteItemAsync('userEmail');
-      await SecureStore.deleteItemAsync('childProfiles');
-      await SecureStore.deleteItemAsync('currentProfile');
+      // Don't delete profiles - they persist for when user logs back in
+      // await SecureStore.deleteItemAsync(getUserKey('childProfiles'));
+      // await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
     } catch (error) {
-      console.log('Error clearing stored credentials:', error);
     }
     setIsAuthenticated(false);
     setUserEmail('');
@@ -693,8 +1051,10 @@ export default function App() {
     setIsGuestMode(false);
     setProfiles([]);
     setCurrentProfile(null);
-    setStory(''); // Clear current story
-    setCurrentScreen('stories'); // Return to home
+    setProfilesLoaded(false);
+    setStory('');
+    setCurrentScreen('stories');
+    setInitialAuthMode('welcome');
   };
 
   const shouldShowReset = () => {
@@ -736,10 +1096,26 @@ export default function App() {
     );
   }
 
-  if (!isAuthenticated) {
+  const handleGuestMode = () => {
+    setIsGuestMode(true);
+    setIsAuthenticated(true);
+    setUserEmail('');
+    setAccessToken('');
+    setSubscriptionStatus({ isSubscribed: false, subscriptionType: 'guest' });
+    setProfiles([]);
+    setCurrentProfile(null);
+    setCurrentAgeRating('toddlers');
+  };
+
+  if (!isAuthenticated && !isGuestMode) {
     return (
       <ErrorBoundary>
-        <AuthScreen onAuthSuccess={handleAuthSuccess} darkMode={darkMode} />
+        <AuthScreen 
+          onAuthSuccess={handleAuthSuccess} 
+          onGuestMode={handleGuestMode}
+          darkMode={darkMode}
+          initialMode={initialAuthMode}
+        />
       </ErrorBoundary>
     );
   }
@@ -794,6 +1170,7 @@ export default function App() {
           onClose={() => setCurrentScreen('stories')}
           darkMode={darkMode}
           fontSize={fontSize}
+          isSubscribed={subscriptionStatus?.isSubscribed}
         />
       </ErrorBoundary>
     );
@@ -803,18 +1180,46 @@ export default function App() {
     return (
       <>
         <ErrorBoundary>
-          <VisualStoryCreator 
-            onCreateStory={handleVisualStoryGenerate}
-            onBack={() => setCurrentScreen('stories')}
-            darkMode={darkMode}
-          />
+          <ImageBackground 
+            source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+            style={globalStyles.backgroundImage}
+            imageStyle={globalStyles.backgroundImageStyle}
+          >
+            <View style={globalStyles.screenContainer}>
+              <TouchableOpacity style={[globalStyles.homeButton, {alignSelf: 'flex-start', marginBottom: 10}]} onPress={() => {
+                setGenre('random');
+                setCurrentScreen('stories');
+              }}>
+                <Text style={globalStyles.homeButtonText}>🏠 Home</Text>
+              </TouchableOpacity>
+              
+              <Text style={globalStyles.heading}>Create Your Story</Text>
+              <VisualStoryCreator 
+                onCreateStory={handleVisualStoryGenerate}
+                onBack={() => {
+                  setGenre('random');
+                  setCurrentScreen('stories');
+                }}
+                darkMode={darkMode}
+                ageRating={getCurrentAgeRating()}
+              />
+            </View>
+          </ImageBackground>
         </ErrorBoundary>
         
         <UpgradeModal 
           visible={showUpgradeModal}
           onClose={() => setShowUpgradeModal(false)}
           onSubscribe={handleUpgradeSubscribe}
+          onSignUp={() => {
+            setShowUpgradeModal(false);
+            setIsAuthenticated(false);
+            setIsGuestMode(false);
+            setInitialAuthMode('signup');
+            setCurrentScreen('auth');
+          }}
           darkMode={darkMode}
+          isGuestMode={isGuestMode}
         />
         
         <SubscriptionModal 
@@ -822,7 +1227,14 @@ export default function App() {
           onClose={() => setShowSubscriptionModal(false)}
           onSubscribe={handleSubscribe}
           onWatchAd={handleWatchAd}
+          onSignUp={() => {
+            setShowSubscriptionModal(false);
+            setIsAuthenticated(false);
+            setIsGuestMode(false);
+            setCurrentScreen('auth');
+          }}
           darkMode={darkMode}
+          isGuestMode={isGuestMode}
         />
         
         <AdModal 
@@ -840,17 +1252,18 @@ export default function App() {
       <ErrorBoundary>
         <ImageBackground 
           source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
-          style={styles.backgroundImage}
-          imageStyle={styles.backgroundImageStyle}
+          style={globalStyles.backgroundImage}
+          imageStyle={globalStyles.backgroundImageStyle}
         >
-          <View style={styles.container}>
-        <View style={styles.header}>
+          <View style={globalStyles.screenContainer}>
+        <View style={globalStyles.screenHeader}>
           <TouchableOpacity 
             style={styles.navBtn}
             onPress={handleGoHome}
           >
             <Text style={styles.btnText}>🏠 Home</Text>
           </TouchableOpacity>
+          <Text style={globalStyles.heading}>Word Management</Text>
           {!subscriptionStatus?.isSubscribed && (
             <TouchableOpacity 
               style={[styles.statusFlag, isGuestMode ? styles.guestFlag : styles.freeFlag]}
@@ -861,18 +1274,13 @@ export default function App() {
               </Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity 
-            style={styles.darkModeBtn}
-            onPress={() => setDarkMode(!darkMode)}
-          >
-            <Text style={styles.btnText}>{darkMode ? '☀️' : '🌙'}</Text>
-          </TouchableOpacity>
         </View>
         <ManageWordsScreen 
           userEmail={userEmail} 
           accessToken={accessToken} 
           darkMode={darkMode}
           currentProfile={currentProfile}
+          isOffline={isOffline}
         />
       </View>
         </ImageBackground>
@@ -885,11 +1293,11 @@ export default function App() {
       <ErrorBoundary>
         <ImageBackground 
           source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
-          style={styles.backgroundImage}
-          imageStyle={styles.backgroundImageStyle}
+          style={globalStyles.backgroundImage}
+          imageStyle={globalStyles.backgroundImageStyle}
         >
-          <View style={styles.container}>
-          <View style={styles.header}>
+          <View style={globalStyles.screenContainer}>
+          <View style={globalStyles.screenHeader}>
             <TouchableOpacity 
               style={styles.navBtn}
               onPress={handleGoHome}
@@ -903,6 +1311,7 @@ export default function App() {
             accessToken={accessToken}
             onAgeRatingChange={handleAgeRatingChange}
             currentProfile={currentProfile}
+            isOffline={isOffline}
           />
         </View>
         </ImageBackground>
@@ -915,22 +1324,24 @@ export default function App() {
       <ErrorBoundary>
         <ImageBackground 
           source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
-          style={styles.backgroundImage}
-          imageStyle={styles.backgroundImageStyle}
+          style={globalStyles.backgroundImage}
+          imageStyle={globalStyles.backgroundImageStyle}
         >
-          <View style={styles.container}>
-          <View style={styles.header}>
+          <View style={globalStyles.screenContainer}>
+          <View style={globalStyles.screenHeader}>
             <TouchableOpacity 
               style={styles.navBtn}
               onPress={handleGoHome}
             >
               <Text style={styles.btnText}>🏠 Home</Text>
             </TouchableOpacity>
+            <Text style={globalStyles.heading}>Saved Stories</Text>
           </View>
           <SavedStoriesScreen 
             darkMode={darkMode} 
             userEmail={userEmail} 
             currentProfile={currentProfile}
+            isOffline={isOffline}
             onReloadStory={(storyContent) => {
               setStory(storyContent);
               setCurrentScreen('story-display');
@@ -947,17 +1358,18 @@ export default function App() {
       <ErrorBoundary>
         <ImageBackground 
           source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
-          style={styles.backgroundImage}
-          imageStyle={styles.backgroundImageStyle}
+          style={globalStyles.backgroundImage}
+          imageStyle={globalStyles.backgroundImageStyle}
         >
-          <View style={styles.container}>
-          <View style={styles.header}>
+          <View style={globalStyles.screenContainer}>
+          <View style={globalStyles.screenHeader}>
             <TouchableOpacity 
               style={styles.navBtn}
               onPress={handleGoHome}
             >
               <Text style={styles.btnText}>🏠 Home</Text>
             </TouchableOpacity>
+            <Text style={globalStyles.heading}>Support</Text>
           </View>
           <SupportScreen darkMode={darkMode} userEmail={userEmail} />
         </View>
@@ -971,19 +1383,31 @@ export default function App() {
       <ErrorBoundary>
         <ImageBackground 
           source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
-          style={styles.backgroundImage}
-          imageStyle={styles.backgroundImageStyle}
+          style={globalStyles.backgroundImage}
+          imageStyle={globalStyles.backgroundImageStyle}
         >
-          <View style={styles.container}>
-          <View style={styles.header}>
+          <View style={globalStyles.screenContainer}>
+          <View style={globalStyles.screenHeader}>
             <TouchableOpacity 
               style={styles.navBtn}
               onPress={handleGoHome}
             >
               <Text style={styles.btnText}>🏠 Home</Text>
             </TouchableOpacity>
+            <Text style={globalStyles.heading}>FAQ</Text>
           </View>
-          <FAQScreen darkMode={darkMode} />
+          <FAQScreen 
+            darkMode={darkMode} 
+            userEmail={userEmail}
+            isGuest={isGuestMode}
+            isSubscribed={subscriptionStatus?.isSubscribed}
+            onAccountDeleted={() => {
+              setIsAuthenticated(false);
+              setIsGuestMode(false);
+              setUserEmail('');
+              setCurrentScreen('auth');
+            }}
+          />
         </View>
         </ImageBackground>
       </ErrorBoundary>
@@ -995,15 +1419,17 @@ export default function App() {
       <ErrorBoundary>
         <ImageBackground 
           source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
-          style={styles.backgroundImage}
-          imageStyle={styles.backgroundImageStyle}
+          style={globalStyles.backgroundImage}
+          imageStyle={globalStyles.backgroundImageStyle}
         >
           <ProfileScreen 
             darkMode={darkMode}
             profiles={profiles}
             onProfilesChange={saveProfiles}
+            onDeleteProfile={deleteProfile}
             onBack={() => setCurrentScreen('stories')}
             userEmail={userEmail}
+            isOffline={isOffline}
           />
         </ImageBackground>
       </ErrorBoundary>
@@ -1014,62 +1440,70 @@ export default function App() {
     <ErrorBoundary>
       <ImageBackground 
         source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
-        style={styles.backgroundImage}
-        imageStyle={styles.backgroundImageStyle}
+        style={globalStyles.backgroundImage}
+        imageStyle={globalStyles.backgroundImageStyle}
       >
-        <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerButtons}>
-          {subscriptionStatus?.isSubscribed ? (
-            <View style={[styles.statusFlag, styles.premiumFlag]}>
-              <Text style={styles.statusText}>⭐ Premium</Text>
-            </View>
-          ) : (
-            <TouchableOpacity 
-              style={[styles.statusFlag, isGuestMode ? styles.guestFlag : styles.freeFlag]}
-              onPress={() => setShowUpgradeModal(true)}
-            >
-              <Text style={styles.statusText}>
-                {isGuestMode ? 'Guest - Upgrade for more?' : 'Free - Upgrade for more?'}
-              </Text>
-            </TouchableOpacity>
-          )}
-          <View style={styles.rightButtons}>
-            <MenuDropdown
-              darkMode={darkMode}
-              currentProfile={currentProfile}
-              profiles={profiles}
-              onProfileChange={saveCurrentProfile}
-              onProfilesPress={handleMenuProfiles}
-              onWordsPress={handleMenuWords}
-              onAgePress={handleMenuAge}
-              onSavedStoriesPress={handleMenuSavedStories}
-              onSupportPress={handleMenuSupport}
-              onFAQPress={handleMenuFAQ}
-              onDarkModeToggle={handleMenuDarkMode}
-              onSignOut={handleMenuSignOut}
-              onUpgrade={() => setShowUpgradeModal(true)}
-              isSubscribed={subscriptionStatus?.isSubscribed}
-              isGuest={isGuestMode}
-            />
+        {isOffline && (
+          <View style={globalStyles.offlineBanner}>
+            <Text style={globalStyles.offlineBannerText}>📵 Offline Mode - Viewing cached data only</Text>
           </View>
+        )}
+        <ScrollView style={globalStyles.screenContainer}>
+      <View style={styles.titleRow}>
+        <View style={{flex: 1}} />
+        <Text style={globalStyles.title}>SpellTales</Text>
+        <View style={{flex: 1, alignItems: 'flex-end'}}>
+          <MenuDropdown
+            darkMode={darkMode}
+            currentProfile={currentProfile}
+            profiles={profiles}
+            currentAgeRating={getCurrentAgeRating()}
+            onProfileChange={saveCurrentProfile}
+            onProfilesPress={handleMenuProfiles}
+            onWordsPress={handleMenuWords}
+            onAgePress={handleMenuAge}
+            onSavedStoriesPress={handleMenuSavedStories}
+            onSupportPress={handleMenuSupport}
+            onFAQPress={handleMenuFAQ}
+            onDarkModeToggle={handleMenuDarkMode}
+            onSignOut={handleMenuSignOut}
+            onUpgrade={() => setShowUpgradeModal(true)}
+            isSubscribed={subscriptionStatus?.isSubscribed}
+            isGuest={isGuestMode}
+            onRequestPassword={requestPassword}
+          />
         </View>
       </View>
 
-      <Text style={styles.title}>SpellTales</Text>
-      <Text style={styles.welcomeText}>Welcome, {userEmail}!</Text>
+      {isGuestMode ? (
+        <View style={{alignItems: 'center', marginBottom: 10}}>
+          <Text style={globalStyles.welcomeText}>Welcome, Guest!</Text>
+          <TouchableOpacity onPress={() => {
+            setIsGuestMode(false);
+            setIsAuthenticated(false);
+            setCurrentScreen('auth');
+            // Set AuthScreen to signup mode - we'll need to pass this as a prop
+          }}>
+            <Text style={globalStyles.linkButtonText}>
+              Why not create an account for more features?
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <Text style={globalStyles.welcomeText}>
+          Welcome, {currentProfile ? currentProfile.name : userEmail}!
+        </Text>
+      )}
       
-      
-      <View style={styles.formSection}>
-        <Text style={styles.label}>Genre:</Text>
+      <View style={[globalStyles.section, {paddingBottom: 10}]}>
         <TouchableOpacity 
-          style={styles.dropdown}
+          style={globalStyles.genreDropdown}
           onPress={() => setShowGenreDropdown(true)}
         >
-          <Text style={styles.dropdownText}>
+          <Text style={globalStyles.dropdownText}>
             {genres.find(g => g.value === genre)?.label || 'Select Genre'}
           </Text>
-          <Text style={styles.dropdownArrow}>▼</Text>
+          <Text style={globalStyles.dropdownArrow}>▼</Text>
         </TouchableOpacity>
 
         <Modal
@@ -1102,7 +1536,8 @@ export default function App() {
         </Modal>
 
         <TextInput
-          style={styles.input}
+          key={`character1-${darkMode}`}
+          style={globalStyles.textInput}
           value={character1}
           onChangeText={setCharacter1}
           placeholder="First character (e.g., princess)"
@@ -1111,7 +1546,8 @@ export default function App() {
         />
 
         <TextInput
-          style={styles.input}
+          key={`character2-${darkMode}`}
+          style={globalStyles.textInput}
           value={character2}
           onChangeText={setCharacter2}
           placeholder="Second character (e.g., dragon)"
@@ -1120,10 +1556,11 @@ export default function App() {
         />
 
         <View style={styles.keywordSection}>
-          <Text style={styles.sectionTitle}>Optional Story Elements</Text>
+          <Text style={globalStyles.cardTitle}>Optional Story Elements</Text>
           
           <TextInput
-            style={styles.input}
+            key={`keyword1-${darkMode}`}
+            style={globalStyles.textInput}
             value={keyword1}
             onChangeText={setKeyword1}
             placeholder="Keyword 1 (e.g., castle)"
@@ -1132,7 +1569,8 @@ export default function App() {
           />
           
           <TextInput
-            style={styles.input}
+            key={`keyword2-${darkMode}`}
+            style={globalStyles.textInput}
             value={keyword2}
             onChangeText={setKeyword2}
             placeholder="Keyword 2 (e.g., treasure)"
@@ -1141,7 +1579,8 @@ export default function App() {
           />
           
           <TextInput
-            style={styles.input}
+            key={`keyword3-${darkMode}`}
+            style={globalStyles.textInput}
             value={keyword3}
             onChangeText={setKeyword3}
             placeholder="Keyword 3 (e.g., rainbow)"
@@ -1152,28 +1591,29 @@ export default function App() {
 
         <View style={styles.buttonContainer}>
           <TouchableOpacity 
-            style={[styles.generateBtn, isGenerating && styles.btnDisabled]}
-            onPress={generateStory}
-            disabled={isGenerating}
+            style={[globalStyles.primaryButton, (isGenerating || isOffline) && globalStyles.buttonDisabled]}
+            onPress={isOffline ? () => Alert.alert('Offline', 'Story creation requires internet connection') : generateStory}
+            disabled={isGenerating || isOffline}
           >
-            <Text style={styles.generateBtnText}>
+            <Text style={globalStyles.buttonText}>
               {isGenerating ? '⏳ Making Your Story...' : '✨ Make My Story!'}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
-            style={styles.visualBtn}
-            onPress={() => setCurrentScreen('visual')}
+            style={[globalStyles.outlineButton, isOffline && globalStyles.buttonDisabled]}
+            onPress={() => isOffline ? Alert.alert('Offline', 'Story creation requires internet connection') : setCurrentScreen('visual')}
+            disabled={isOffline}
           >
-            <Text style={styles.visualBtnText}>🎨 Help Me Create!</Text>
+            <Text style={globalStyles.outlineButtonText}>🎨 Help Me Create!</Text>
           </TouchableOpacity>
 
           {shouldShowReset() && (
             <TouchableOpacity 
-              style={styles.resetBtn}
+              style={globalStyles.linkButton}
               onPress={resetStory}
             >
-              <Text style={styles.resetBtnText}>🔄 Reset</Text>
+              <Text style={globalStyles.linkButtonText}>Reset</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -1190,7 +1630,15 @@ export default function App() {
         visible={showUpgradeModal}
         onClose={() => setShowUpgradeModal(false)}
         onSubscribe={handleUpgradeSubscribe}
+        onSignUp={() => {
+          setShowUpgradeModal(false);
+          setIsAuthenticated(false);
+          setIsGuestMode(false);
+          setInitialAuthMode('signup');
+          setCurrentScreen('auth');
+        }}
         darkMode={darkMode}
+        isGuestMode={isGuestMode}
       />
       
       <SubscriptionModal 
@@ -1198,7 +1646,14 @@ export default function App() {
         onClose={() => setShowSubscriptionModal(false)}
         onSubscribe={handleSubscribe}
         onWatchAd={handleWatchAd}
+        onSignUp={() => {
+          setShowSubscriptionModal(false);
+          setIsAuthenticated(false);
+          setIsGuestMode(false);
+          setCurrentScreen('auth');
+        }}
         darkMode={darkMode}
+        isGuestMode={isGuestMode}
       />
 
       <Modal
@@ -1236,6 +1691,14 @@ export default function App() {
           </View>
         </View>
       </Modal>
+        
+        {/* Banner Ad Placeholder for Free/Guest Users */}
+        {!subscriptionStatus?.isSubscribed && (
+          <View style={styles.bannerAdPlaceholder}>
+            <Text style={styles.bannerAdText}>📱 Ad Space - AdMob Banner</Text>
+          </View>
+        )}
+        
         </ScrollView>
       </ImageBackground>
     </ErrorBoundary>
@@ -1278,15 +1741,18 @@ const getStyles = (darkMode) => StyleSheet.create({
   backgroundImage: {
     flex: 1,
   },
-  backgroundImageStyle: {
-    opacity: darkMode ? 0.2 : 0.5,
-    resizeMode: 'cover',
-  },
   container: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: darkMode ? 'rgba(0,0,0,0.7)' : 'transparent',
     padding: 20,
     paddingTop: 60,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 10,
   },
   header: {
     flexDirection: 'row',
@@ -1305,6 +1771,9 @@ const getStyles = (darkMode) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  leftSpacer: {
+    flex: 1,
   },
   navBtn: {
     backgroundColor: darkMode ? '#444' : '#e0e0e0',
@@ -1364,9 +1833,8 @@ const getStyles = (darkMode) => StyleSheet.create({
   },
   title: {
     fontSize: 24,
-    fontWeight: 'bold',
-    fontFamily: 'Chewy_400Regular',
-    color: darkMode ? '#fff' : '#000',
+    fontFamily: 'Nunito_600SemiBold',
+    color: '#fff',
     textAlign: 'center',
     marginBottom: 10,
   },
@@ -1396,7 +1864,6 @@ const getStyles = (darkMode) => StyleSheet.create({
     lineHeight: 18,
   },
   formSection: {
-    marginBottom: 20,
   },
   label: {
     color: darkMode ? '#fff' : '#000',
@@ -1454,24 +1921,14 @@ const getStyles = (darkMode) => StyleSheet.create({
     color: darkMode ? '#fff' : '#000',
     fontSize: 16,
   },
-  input: {
-    backgroundColor: darkMode ? '#333' : '#fff',
-    color: darkMode ? '#fff' : '#000',
-    padding: 12,
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: darkMode ? '#555' : '#ddd',
-    fontSize: 16,
-    marginBottom: 15,
-  },
   keywordSection: {
-    marginBottom: 20,
+    marginBottom: 10,
   },
   buttonContainer: {
     flexDirection: 'column',
     alignItems: 'center',
-    marginBottom: 15,
-    gap: 10,
+    marginBottom: 10,
+    gap: 0,
   },
   sectionTitle: {
     fontSize: 18,
@@ -1612,6 +2069,22 @@ const getStyles = (darkMode) => StyleSheet.create({
   },
   confirmBtnText: {
     color: '#fff',
+    fontWeight: 'bold',
+  },
+  bannerAdPlaceholder: {
+    backgroundColor: darkMode ? '#333' : '#e0e0e0',
+    padding: 15,
+    marginHorizontal: 20,
+    marginVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: darkMode ? '#555' : '#ccc',
+    borderStyle: 'dashed',
+  },
+  bannerAdText: {
+    color: darkMode ? '#999' : '#666',
+    fontSize: 12,
     fontWeight: 'bold',
   },
 });

@@ -41,7 +41,6 @@ export class SubscriptionService {
         return premiumUsers;
       }
     } catch (error) {
-      console.error('Failed to fetch premium users:', error);
     }
 
     // Fallback to hardcoded list if secret fetch fails
@@ -71,7 +70,6 @@ export class SubscriptionService {
     try {
       return await StoreKitNative.checkSubscriptionStatus();
     } catch (error) {
-      console.error('Subscription check failed:', error);
       return { isSubscribed: false, subscriptionType: 'free', expiryDate: null };
     }
   }
@@ -85,7 +83,6 @@ export class SubscriptionService {
       const result = await StoreKitNative.purchaseProduct(productId);
       return result;
     } catch (error) {
-      console.error('Purchase failed:', error);
       return { success: false, error: error.message };
     }
   }
