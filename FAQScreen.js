@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, TextInput } from 'react-native';
 import { createGlobalStyles } from './styles/GlobalStyles';
-import * as SecureStore from 'expo-secure-store';
+import * as Storage from './utils/storage';
 
 export default function FAQScreen({ darkMode, userEmail, isGuest, isSubscribed, onAccountDeleted }) {
   const [expandedSection, setExpandedSection] = useState(null);
@@ -135,10 +135,10 @@ export default function FAQScreen({ darkMode, userEmail, isGuest, isSubscribed, 
       }
 
       // 4. Clear local storage
-      await SecureStore.deleteItemAsync('userToken');
-      await SecureStore.deleteItemAsync('userEmail');
-      await SecureStore.deleteItemAsync('profiles');
-      await SecureStore.deleteItemAsync('savedStories');
+      await Storage.deleteItemAsync('userToken');
+      await Storage.deleteItemAsync('userEmail');
+      await Storage.deleteItemAsync('profiles');
+      await Storage.deleteItemAsync('savedStories');
 
       const successMessage = isSubscribed
         ? 'Your account and all data have been permanently deleted. Please cancel your subscription in your Apple ID settings.'

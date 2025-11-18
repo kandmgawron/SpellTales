@@ -1,11 +1,11 @@
 {
   "expo": {
     "name": "SpellTales",
-    "slug": "spelltales",
+    "slug": "BedtimeStoriesApp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash_logo.png",
@@ -14,17 +14,32 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.kategawron.spelltales"
+      "bundleIdentifier": "com.kategawron.spelltales",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "SpellTales uses Face ID to securely authenticate your account and protect your children's profiles.",
+        "NSCameraUsageDescription": "SpellTales does not use the camera.",
+        "NSPhotoLibraryUsageDescription": "SpellTales does not access your photo library.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.kategawron.spelltales"
+      "package": "com.kategawron.spelltales",
+      "versionCode": 1,
+      "permissions": [
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
     },
     "extra": {
       "eas": {
@@ -32,19 +47,34 @@
       }
     },
     "privacy": "public",
-    "description": "Create personalized bedtime stories for children with AI-generated content, learning words, and age-appropriate themes.",
+    "primaryColor": "#4CAF50",
+    "description": "SpellTales creates personalized AI-powered bedtime stories for children aged 2-17. Choose characters, settings, and learning words to generate unique, age-appropriate stories. Features include story saving, multiple child profiles, and educational word integration. Perfect for bedtime routines and encouraging literacy.",
     "keywords": [
-      "bedtime",
-      "stories",
+      "bedtime stories",
       "children",
-      "AI",
+      "kids",
+      "AI stories",
       "education",
-      "learning"
+      "learning",
+      "reading",
+      "literacy",
+      "parenting",
+      "family",
+      "storytelling",
+      "personalized stories"
     ],
     "plugins": [
       "expo-asset",
       "expo-secure-store",
-      "expo-font"
-    ]
+      "expo-font",
+      "expo-local-authentication"
+    ],
+    "owner": "kategawron",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/23104595-4b7e-4b5a-91b2-05831e196246"
+    }
   }
 }

@@ -11,7 +11,6 @@ aws-credentials.json
 credentials.json
 
 # API keys and secrets
-config.js
 secrets.json
 api-keys.json
 

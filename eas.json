@@ -1,7 +1,6 @@
 {
   "cli": {
-    "version": ">= 16.26.0",
-    "appVersionSource": "remote"
+    "version": ">= 5.9.0"
   },
   "build": {
     "development": {
@@ -9,10 +8,18 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "ios": {
+        "resourceClass": "m-medium"
+      },
+      "env": {
+        "EXPO_PUBLIC_FORCE_PREMIUM": "true"
+      }
     },
     "production": {
-      "autoIncrement": true
+      "ios": {
+        "resourceClass": "m-medium"
+      }
     }
   },
   "submit": {

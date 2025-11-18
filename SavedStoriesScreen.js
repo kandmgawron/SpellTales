@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Alert, ScrollView, StyleSheet, Modal, TextInput } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import * as Storage from './utils/storage';
 import Markdown from 'react-native-markdown-display';
 import { createGlobalStyles } from './styles/GlobalStyles';
 
@@ -64,7 +64,6 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
   };
 
   const loadSavedStories = async () => {
-    console.log('loadSavedStories: Starting...');
     try {
       // Try to load from cloud first
       const response = await fetch(`${process.env.EXPO_PUBLIC_LAMBDA_URL}`, {
@@ -76,11 +75,9 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
         })
       });
 
-      console.log('loadSavedStories: Response status', response.status, 'ok:', response.ok);
       
       if (response.ok) {
         const result = await response.json();
-        console.log('loadSavedStories: Result success', result.success, 'Stories count', result.stories?.length || 0);
         
         if (result.success) {
           const formattedStories = (result.stories || []).map(story => ({
@@ -97,7 +94,6 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
             profileName: story.profile_name || 'Global'
           }));
           
-          console.log('loadSavedStories: Loaded from DynamoDB, count:', formattedStories.length);
           setAllStories(formattedStories);
           
           
@@ -117,19 +113,15 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
         }
       } else {
         const errorText = await response.text();
-        console.log('loadSavedStories: Response error', response.status, errorText);
       }
     } catch (error) {
-      console.log('loadSavedStories: Error from DynamoDB', error.message);
     }
 
     // Fallback to SecureStore only if DynamoDB query failed
-    console.log('loadSavedStories: Falling back to SecureStore');
     try {
-      const stories = await SecureStore.getItemAsync('savedStories');
+      const stories = await Storage.getItemAsync('savedStories');
       if (stories) {
         const allStoriesData = JSON.parse(stories);
-        console.log('loadSavedStories: Loaded from SecureStore, count:', allStoriesData.length);
         setAllStories(allStoriesData);
         
         // Filter stories by current profile
@@ -146,7 +138,6 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
         setSavedStories([]);
       }
     } catch (error) {
-      console.log('loadSavedStories: Error from SecureStore', error);
     }
   };
 
@@ -173,7 +164,7 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
       // Update local state and SecureStore
       const updatedStories = savedStories.filter((_, i) => i !== index);
       setSavedStories(updatedStories);
-      await SecureStore.setItemAsync('savedStories', JSON.stringify(updatedStories));
+      await Storage.setItemAsync('savedStories', JSON.stringify(updatedStories));
       Alert.alert('Success', 'Story deleted successfully');
     } catch (error) {
       Alert.alert('Error', 'Failed to delete story');
@@ -221,7 +212,7 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
 
       // Clear local storage
       setSavedStories([]);
-      await SecureStore.setItemAsync('savedStories', JSON.stringify([]));
+      await Storage.setItemAsync('savedStories', JSON.stringify([]));
       Alert.alert('Success', 'All stories deleted successfully');
     } catch (error) {
       Alert.alert('Error', 'Failed to delete all stories');

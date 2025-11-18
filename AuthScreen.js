@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Text, View, TextInput, TouchableOpacity, Alert, ScrollView, ImageBackground } from 'react-native';
+import { Text, View, TextInput, TouchableOpacity, Alert, ScrollView, ImageBackground, Platform } from 'react-native';
 import { useFonts, Chewy_400Regular } from '@expo-google-fonts/chewy';
 import { Nunito_600SemiBold } from '@expo-google-fonts/nunito';
 import { createGlobalStyles } from './styles/GlobalStyles';
@@ -40,27 +40,23 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
     
     setLoading(true);
     try {
-      const response = await fetch(`https://cognito-idp.${process.env.EXPO_PUBLIC_COGNITO_REGION}.amazonaws.com/`, {
+      const response = await fetch('https://rnbcv6rsb7.execute-api.eu-west-2.amazonaws.com/prod/auth', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/x-amz-json-1.1',
-          'X-Amz-Target': 'AWSCognitoIdentityProviderService.InitiateAuth'
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          AuthFlow: 'USER_PASSWORD_AUTH',
-          ClientId: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID,
-          AuthParameters: {
-            USERNAME: email,
-            PASSWORD: password
-          }
+          action: 'signIn',
+          email: email,
+          password: password
         })
       });
 
-      const data = await response.json();
+      const result = await response.json();
       
-      if (response.ok && data.AuthenticationResult) {
-        // Offer to save credentials for biometric login
-        if (biometricAvailable && !biometricEnabled) {
+      if (result.success) {
+        // Offer to save credentials for biometric login (mobile only)
+        if (Platform.OS !== 'web' && biometricAvailable && !biometricEnabled) {
           Alert.alert(
             'Enable Biometric Login?',
             'Would you like to use Face ID/Touch ID for faster login next time?',
@@ -76,12 +72,12 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
             ]
           );
         }
-        onAuthSuccess(data.AuthenticationResult, email, false);
+        onAuthSuccess(result.AuthenticationResult, email, false);
       } else {
-        Alert.alert('Error', data.message || 'Invalid email or password');
+        Alert.alert('Error', result.error || 'Invalid email or password');
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to sign in. Please try again.');
+      Alert.alert('Error', 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -95,30 +91,13 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
       if (authenticated) {
         const credentials = await getBiometricCredentials();
         if (credentials) {
-          // Use stored credentials to sign in
-          const response = await fetch(`https://cognito-idp.${process.env.EXPO_PUBLIC_COGNITO_REGION}.amazonaws.com/`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-amz-json-1.1',
-              'X-Amz-Target': 'AWSCognitoIdentityProviderService.InitiateAuth'
-            },
-            body: JSON.stringify({
-              AuthFlow: 'USER_PASSWORD_AUTH',
-              ClientId: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID,
-              AuthParameters: {
-                USERNAME: credentials.email,
-                PASSWORD: credentials.password
-              }
-            })
-          });
-
-          const data = await response.json();
-          
-          if (response.ok && data.AuthenticationResult) {
-            onAuthSuccess(data.AuthenticationResult, credentials.email, false);
-          } else {
-            Alert.alert('Error', 'Stored credentials are invalid. Please sign in again.');
-          }
+          // Create a mock authentication result for biometric login
+          const mockAuthResult = {
+            AccessToken: 'biometric-token-' + Date.now(),
+            IdToken: 'biometric-id-token-' + Date.now(),
+            RefreshToken: 'biometric-refresh-token-' + Date.now(),
+          };
+          onAuthSuccess(mockAuthResult, credentials.email, false);
         }
       }
     } catch (error) {
@@ -134,45 +113,54 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
       return;
     }
     
+    // Password validation
     if (password.length < 8) {
-      Alert.alert('Error', 'Password must be at least 8 characters');
+      Alert.alert('Password Requirements', 'Password must be at least 8 characters long');
+      return;
+    }
+    
+    if (!/[A-Z]/.test(password)) {
+      Alert.alert('Password Requirements', 'Password must contain at least one uppercase letter');
+      return;
+    }
+    
+    if (!/[a-z]/.test(password)) {
+      Alert.alert('Password Requirements', 'Password must contain at least one lowercase letter');
+      return;
+    }
+    
+    if (!/[0-9]/.test(password)) {
+      Alert.alert('Password Requirements', 'Password must contain at least one number');
       return;
     }
     
     setLoading(true);
     try {
-      const response = await fetch(`https://cognito-idp.${process.env.EXPO_PUBLIC_COGNITO_REGION}.amazonaws.com/`, {
+      const response = await fetch('https://rnbcv6rsb7.execute-api.eu-west-2.amazonaws.com/prod/auth', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/x-amz-json-1.1',
-          'X-Amz-Target': 'AWSCognitoIdentityProviderService.SignUp'
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ClientId: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID,
-          Username: email,
-          Password: password,
-          UserAttributes: [
-            {
-              Name: 'email',
-              Value: email
-            }
-          ]
+          action: 'signUp',
+          email: email,
+          password: password
         })
       });
 
-      const data = await response.json();
+      const result = await response.json();
       
-      if (response.ok) {
+      if (result.success) {
         Alert.alert(
           'Success', 
           'Account created! Please check your email for a verification code.',
           [{ text: 'OK', onPress: () => setMode('verify') }]
         );
       } else {
-        Alert.alert('Error', data.message || 'Failed to create account');
+        Alert.alert('Error', result.error || 'Failed to create account');
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to sign up. Please try again.');
+      Alert.alert('Error', 'Sign up failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -186,32 +174,14 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
     
     setLoading(true);
     try {
-      const response = await fetch(`https://cognito-idp.${process.env.EXPO_PUBLIC_COGNITO_REGION}.amazonaws.com/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-amz-json-1.1',
-          'X-Amz-Target': 'AWSCognitoIdentityProviderService.ConfirmSignUp'
-        },
-        body: JSON.stringify({
-          ClientId: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID,
-          Username: email,
-          ConfirmationCode: verificationCode
-        })
-      });
-
-      const data = await response.json();
-      
-      if (response.ok) {
-        Alert.alert(
-          'Success', 
-          'Email verified! You can now sign in.',
-          [{ text: 'OK', onPress: () => setMode('signin') }]
-        );
-      } else {
-        Alert.alert('Error', data.message || 'Invalid verification code');
-      }
+      await confirmSignUp(email, verificationCode);
+      Alert.alert(
+        'Success', 
+        'Email verified! Check out our premium features.',
+        [{ text: 'OK', onPress: () => setMode('subscription') }]
+      );
     } catch (error) {
-      Alert.alert('Error', 'Failed to verify code. Please try again.');
+      Alert.alert('Error', error.message || 'Invalid verification code');
     } finally {
       setLoading(false);
     }
@@ -225,14 +195,14 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
     
     setLoading(true);
     try {
-      const response = await fetch(`https://cognito-idp.${process.env.EXPO_PUBLIC_COGNITO_REGION}.amazonaws.com/`, {
+      const response = await fetch(`https://cognito-idp.${CONFIG.COGNITO_REGION}.amazonaws.com/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-amz-json-1.1',
           'X-Amz-Target': 'AWSCognitoIdentityProviderService.ForgotPassword'
         },
         body: JSON.stringify({
-          ClientId: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID,
+          ClientId: CONFIG.COGNITO_CLIENT_ID,
           Username: email
         })
       });
@@ -268,14 +238,14 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
     
     setLoading(true);
     try {
-      const response = await fetch(`https://cognito-idp.${process.env.EXPO_PUBLIC_COGNITO_REGION}.amazonaws.com/`, {
+      const response = await fetch(`https://cognito-idp.${CONFIG.COGNITO_REGION}.amazonaws.com/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-amz-json-1.1',
           'X-Amz-Target': 'AWSCognitoIdentityProviderService.ConfirmForgotPassword'
         },
         body: JSON.stringify({
-          ClientId: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID,
+          ClientId: CONFIG.COGNITO_CLIENT_ID,
           Username: email,
           ConfirmationCode: verificationCode,
           Password: newPassword
@@ -307,14 +277,12 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
       </Text>
       <Text style={globalStyles.authSubtitle}>Magical Stories for Learning</Text>
       
-      <View style={globalStyles.descriptionContainer}>
+      <View style={[globalStyles.section, {width: '100%'}]}>
         <Text style={globalStyles.descriptionText}>✨ Personalised and custom bedtime stories tailored to your child's age</Text>
         <Text style={globalStyles.descriptionText}>📚 Integrate spelling words into engaging adventures</Text>
         <Text style={globalStyles.descriptionText}>👨‍👩‍👧‍👦 Create profiles for different children with age-appropriate content</Text>
         <Text style={globalStyles.descriptionText}>💾 Save and replay your favourite stories anytime</Text>
-      </View>
       
-      <View style={globalStyles.buttonContainer}>
         <TouchableOpacity 
           style={globalStyles.primaryButton}
           onPress={() => setMode('signin')}
@@ -351,51 +319,54 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
         Welcome Back
       </Text>
       
-      <TextInput
-        style={globalStyles.textInputAuth}
-        value={email}
-        onChangeText={setEmail}
-        placeholder="Email"
-        placeholderTextColor="#888"
-        keyboardType="email-address"
-        autoCapitalize="none"
-      />
-      
-      <TextInput
-        style={globalStyles.textInputAuth}
-        value={password}
-        onChangeText={setPassword}
-        placeholder="Password"
-        placeholderTextColor="#888"
-        secureTextEntry
-      />
-      
-      <TouchableOpacity 
-        style={[globalStyles.primaryButton, loading && globalStyles.buttonDisabled]}
-        onPress={handleSignIn}
-        disabled={loading}
-      >
-        <Text style={globalStyles.buttonText}>
-          {loading ? 'Signing In...' : 'Log In'}
-        </Text>
-      </TouchableOpacity>
-      
-      {biometricAvailable && biometricEnabled && (
+      <View style={[globalStyles.section, {width: '100%'}]}>
+        <TextInput
+          style={globalStyles.textInput}
+          value={email}
+          onChangeText={setEmail}
+          placeholder="Email"
+          placeholderTextColor="#888"
+          keyboardType="email-address"
+          autoCapitalize="none"
+        />
+        
+        <TextInput
+          style={globalStyles.textInput}
+          value={password}
+          onChangeText={setPassword}
+          placeholder="Password"
+          placeholderTextColor="#888"
+          secureTextEntry
+          autoCapitalize="none"
+        />
+        
         <TouchableOpacity 
-          style={[globalStyles.outlineButton, loading && globalStyles.buttonDisabled]}
-          onPress={handleBiometricLogin}
+          style={[globalStyles.primaryButton, loading && globalStyles.buttonDisabled]}
+          onPress={handleSignIn}
           disabled={loading}
         >
-          <Text style={globalStyles.outlineButtonText}>🔐 Use Face ID / Touch ID</Text>
+          <Text style={globalStyles.buttonText}>
+            {loading ? 'Signing In...' : 'Log In'}
+          </Text>
         </TouchableOpacity>
-      )}
-      
-      <TouchableOpacity 
-        style={globalStyles.outlineButton}
-        onPress={handleForgotPassword}
-      >
-        <Text style={globalStyles.outlineButtonText}>Forgot Password?</Text>
-      </TouchableOpacity>
+        
+        {biometricAvailable && biometricEnabled && (
+          <TouchableOpacity 
+            style={[globalStyles.outlineButton, loading && globalStyles.buttonDisabled]}
+            onPress={handleBiometricLogin}
+            disabled={loading}
+          >
+            <Text style={globalStyles.outlineButtonText}>🔐 Use Face ID / Touch ID</Text>
+          </TouchableOpacity>
+        )}
+        
+        <TouchableOpacity 
+          style={globalStyles.outlineButton}
+          onPress={handleForgotPassword}
+        >
+          <Text style={globalStyles.outlineButtonText}>Forgot Password?</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -411,34 +382,41 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
         Create Account
       </Text>
       
-      <TextInput
-        style={globalStyles.textInputAuth}
-        value={email}
-        onChangeText={setEmail}
-        placeholder="Email"
-        placeholderTextColor="#888"
-        keyboardType="email-address"
-        autoCapitalize="none"
-      />
-      
-      <TextInput
-        style={globalStyles.textInputAuth}
-        value={password}
-        onChangeText={setPassword}
-        placeholder="Password"
-        placeholderTextColor="#888"
-        secureTextEntry
-      />
-      
-      <TouchableOpacity 
-        style={[globalStyles.primaryButton, loading && globalStyles.buttonDisabled]}
-        onPress={handleSignUp}
-        disabled={loading}
-      >
-        <Text style={globalStyles.buttonText}>
-          {loading ? 'Creating Account...' : 'Sign Up'}
+      <View style={[globalStyles.section, {width: '100%'}]}>
+        <TextInput
+          style={globalStyles.textInput}
+          value={email}
+          onChangeText={setEmail}
+          placeholder="Email"
+          placeholderTextColor="#888"
+          keyboardType="email-address"
+          autoCapitalize="none"
+        />
+        
+        <TextInput
+          style={globalStyles.textInput}
+          value={password}
+          onChangeText={setPassword}
+          placeholder="Password"
+          placeholderTextColor="#888"
+          secureTextEntry
+          autoCapitalize="none"
+        />
+        
+        <Text style={{color: '#888', fontSize: 12, marginBottom: 15, marginTop: -10}}>
+          Password must be at least 8 characters with uppercase, lowercase, and number
         </Text>
-      </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={[globalStyles.primaryButton, loading && globalStyles.buttonDisabled]}
+          onPress={handleSignUp}
+          disabled={loading}
+        >
+          <Text style={globalStyles.buttonText}>
+            {loading ? 'Creating Account...' : 'Sign Up'}
+          </Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -513,6 +491,7 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
         placeholder="New Password"
         placeholderTextColor="#888"
         secureTextEntry
+        autoCapitalize="none"
       />
       
       <TouchableOpacity 
@@ -527,18 +506,49 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
     </View>
   );
 
+  const renderSubscription = () => (
+    <View style={globalStyles.authFormContainer}>
+      <Text style={[globalStyles.authTitle, fontsLoaded && { fontFamily: 'Nunito_600SemiBold' }]}>
+        Welcome to SpellTales!
+      </Text>
+      
+      <View style={[globalStyles.section, {width: '100%'}]}>
+        <Text style={globalStyles.cardTitle}>🌟 Go Premium - £2.99/month</Text>
+        <Text style={globalStyles.descriptionText}>✨ Unlimited story generation</Text>
+        <Text style={globalStyles.descriptionText}>🚫 No advertisements</Text>
+        <Text style={globalStyles.descriptionText}>👨👩👧👦 Multiple child profiles</Text>
+        <Text style={globalStyles.descriptionText}>💾 Save unlimited stories</Text>
+        
+        <TouchableOpacity 
+          style={globalStyles.primaryButton}
+          onPress={() => setMode('signin')}
+        >
+          <Text style={globalStyles.buttonText}>Continue to Sign In</Text>
+        </TouchableOpacity>
+        
+        <Text style={globalStyles.welcomeText}>
+          You can subscribe anytime from the app menu
+        </Text>
+      </View>
+    </View>
+  );
+
   return (
     <ImageBackground 
       source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
       style={globalStyles.authBackgroundImage}
       imageStyle={globalStyles.backgroundImageStyle}
     >
-      <ScrollView style={globalStyles.screenContainer}>
+      <ScrollView 
+        style={globalStyles.screenContainer}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={globalStyles.authInnerContainer}>
           {mode === 'welcome' && renderWelcome()}
           {mode === 'signin' && renderSignIn()}
           {mode === 'signup' && renderSignUp()}
           {mode === 'verify' && renderVerify()}
+          {mode === 'subscription' && renderSubscription()}
           {mode === 'resetPassword' && renderResetPassword()}
         </View>
       </ScrollView>

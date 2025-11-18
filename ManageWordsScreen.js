@@ -4,7 +4,7 @@ import { LAMBDA_URL } from './config';
 import { validateInput } from './utils/security';
 import { createGlobalStyles } from './styles/GlobalStyles';
 
-export default function ManageWordsScreen({ userEmail, accessToken, darkMode, currentProfile, isOffline }) {
+export default function ManageWordsScreen({ userEmail, accessToken, darkMode, currentProfile, isOffline, onProfilesPress }) {
   const [userWords, setUserWords] = useState('');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [password, setPassword] = useState('');
@@ -16,7 +16,7 @@ export default function ManageWordsScreen({ userEmail, accessToken, darkMode, cu
   }, [currentProfile]);
 
   const loadUserWords = async () => {
-    if (!userEmail || !currentProfile?.id) {
+    if (!userEmail) {
       return;
     }
     
@@ -30,7 +30,7 @@ export default function ManageWordsScreen({ userEmail, accessToken, darkMode, cu
         body: JSON.stringify({
           action: 'get_words',
           userEmail: userEmail,
-          profileId: currentProfile.id
+          profileId: currentProfile?.id || 'global'
         })
       });
 
@@ -80,6 +80,11 @@ export default function ManageWordsScreen({ userEmail, accessToken, darkMode, cu
   };
 
   const updateUserWords = async () => {
+    if (!userEmail) {
+      Alert.alert('Error', 'User email is required. Please log in again.');
+      return;
+    }
+
     setLoading(true);
     try {
       const wordsArray = userWords.split(',').map(word => word.trim()).filter(word => word.length > 0);
@@ -92,20 +97,23 @@ export default function ManageWordsScreen({ userEmail, accessToken, darkMode, cu
         }
       }
 
+      const payload = {
+        action: 'save_words',
+        userEmail: userEmail,
+        profileId: currentProfile?.id || 'global',
+        words: wordsArray
+      };
+
       const response = await fetch(LAMBDA_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          action: 'save_words',
-          userEmail: userEmail,
-          profileId: currentProfile?.id,
-          words: wordsArray
-        })
+        body: JSON.stringify(payload)
       });
 
       const result = await response.json();
+      
       if (result.success) {
         Alert.alert('Success', 'Words updated successfully!');
       } else {
@@ -121,7 +129,6 @@ export default function ManageWordsScreen({ userEmail, accessToken, darkMode, cu
 
   return (
     <>
-      {console.log('ManageWordsScreen - isOffline:', isOffline)}
       <Text style={globalStyles.subtitle}>
         {currentProfile 
           ? `Managing words for: ${currentProfile.name}` 

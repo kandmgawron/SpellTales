@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, Modal, AppState, ImageBackground } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, Modal, AppState, ImageBackground, KeyboardAvoidingView, Platform } from 'react-native';
+import * as Storage from './utils/storage';
 import * as Network from 'expo-network';
 import { useFonts, Chewy_400Regular } from '@expo-google-fonts/chewy';
 import { Nunito_600SemiBold } from '@expo-google-fonts/nunito';
@@ -195,7 +195,7 @@ export default function App() {
 
   useEffect(() => {
     // Debug: Check if profiles exist at app start
-    SecureStore.getItemAsync(getUserKey('childProfiles')).then(profiles => {
+    Storage.getItemAsync(getUserKey('childProfiles')).then(profiles => {
     });
     
     checkAuthState();
@@ -252,7 +252,7 @@ export default function App() {
 
   const loadAgeRating = async () => {
     try {
-      const rating = await SecureStore.getItemAsync('ageRating');
+      const rating = await Storage.getItemAsync('ageRating');
       if (rating) {
         setCurrentAgeRating(rating);
       }
@@ -262,8 +262,8 @@ export default function App() {
 
   const checkAuthState = async () => {
     try {
-      const token = await SecureStore.getItemAsync('accessToken');
-      const email = await SecureStore.getItemAsync('userEmail');
+      const token = await Storage.getItemAsync('accessToken');
+      const email = await Storage.getItemAsync('userEmail');
       if (token && email) {
         setIsAuthenticated(true);
         setUserEmail(email);
@@ -321,8 +321,8 @@ export default function App() {
       }
       
       const token = authResult.AccessToken;
-      await SecureStore.setItemAsync('accessToken', token);
-      await SecureStore.setItemAsync('userEmail', email);
+      await Storage.setItemAsync('accessToken', token);
+      await Storage.setItemAsync('userEmail', email);
       
       // Set user data first
       setUserEmail(email);
@@ -352,12 +352,12 @@ export default function App() {
   const signOut = async () => {
     try {
       if (!isGuestMode) {
-        await SecureStore.deleteItemAsync('accessToken');
-        await SecureStore.deleteItemAsync('userEmail');
+        await Storage.deleteItemAsync('accessToken');
+        await Storage.deleteItemAsync('userEmail');
         await clearBiometricCredentials();
         // Don't delete profiles - they persist for when user logs back in
-        // await SecureStore.deleteItemAsync(getUserKey('childProfiles'));
-        // await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
+        // await Storage.deleteItemAsync(getUserKey('childProfiles'));
+        // await Storage.deleteItemAsync(getUserKey('currentProfile'));
       }
       setIsAuthenticated(false);
       setUserEmail('');
@@ -410,7 +410,7 @@ export default function App() {
         setCurrentScreen('story-display');
         // Only save shorter stories to avoid SecureStore size limits
         if (storyText.length < 1800) {
-          await SecureStore.setItemAsync('lastStory', storyText);
+          await Storage.setItemAsync('lastStory', storyText);
         }
       }
     } catch (error) {
@@ -544,7 +544,6 @@ export default function App() {
         })()
       };
       
-      console.log('Calling generateStoryAPI with data:', JSON.stringify(storyData).substring(0, 200));
       
       // Race between API call and timeout
       const response = await Promise.race([
@@ -552,9 +551,7 @@ export default function App() {
         timeoutPromise
       ]);
       
-      console.log('Response received:', typeof response, Object.keys(response || {}));
       const storyText = response.story || response.body || JSON.parse(response.body || '{}').story;
-      console.log('Story text extracted, length:', storyText?.length);
       
       // Check if the response contains a guardrail block message
       const isGuardrailResponse = storyText?.includes('inappropriate content') || 
@@ -562,7 +559,6 @@ export default function App() {
                                  storyText?.includes('try again with different words');
       
       if (storyText && !isGuardrailResponse) {
-        console.log('Story valid, saving and displaying');
         // Save successful story with metadata
         await saveStoryAutomatically({
           ...storyMetadata,
@@ -628,17 +624,28 @@ export default function App() {
         profileName: currentProfile?.name || 'Global'
       };
       
-      const existingStories = await SecureStore.getItemAsync('savedStories');
+      const existingStories = await Storage.getItemAsync('savedStories');
       const stories = existingStories ? JSON.parse(existingStories) : [];
+      
+      // Count stories for current profile
+      const profileId = storyWithProfile.profileId;
+      const profileStories = stories.filter(s => s.profileId === profileId);
+      
+      // If profile has 50 stories, remove the oldest one
+      if (profileStories.length >= 50) {
+        const oldestStory = profileStories[profileStories.length - 1];
+        const oldestIndex = stories.findIndex(s => s === oldestStory);
+        stories.splice(oldestIndex, 1);
+        
+        Alert.alert(
+          'Story Saved',
+          `Your oldest story for ${storyWithProfile.profileName} was automatically deleted to make space. You can save up to 50 stories per profile.`
+        );
+      }
       
       stories.unshift(storyWithProfile); // Add to beginning of array
       
-      // Keep only last 50 stories to prevent storage issues
-      if (stories.length > 50) {
-        stories.splice(50);
-      }
-      
-      await SecureStore.setItemAsync('savedStories', JSON.stringify(stories));
+      await Storage.setItemAsync('savedStories', JSON.stringify(stories));
     } catch (error) {
     }
   };
@@ -747,15 +754,12 @@ export default function App() {
 
   const saveProfilesToDynamoDB = async (profiles) => {
     if (!userEmail || isGuestMode) {
-      console.log('saveProfilesToDynamoDB: Skipped - no email or guest mode');
       return;
     }
     
-    console.log('saveProfilesToDynamoDB: Starting save for', userEmail, 'with', profiles.length, 'profiles');
     
     try {
       if (!LAMBDA_URL) {
-        console.log('saveProfilesToDynamoDB: No LAMBDA_URL');
         return;
       }
 
@@ -769,23 +773,17 @@ export default function App() {
         })
       });
       
-      console.log('saveProfilesToDynamoDB: Response status', response.status);
       
       if (!response.ok) {
-        console.log('saveProfilesToDynamoDB: Response not OK');
         return;
       }
       
       const result = await response.json();
-      console.log('saveProfilesToDynamoDB: Result', result);
       
       if (!result.success) {
-        console.log('saveProfilesToDynamoDB: Save failed', result.error);
       } else {
-        console.log('saveProfilesToDynamoDB: Save successful');
       }
     } catch (error) {
-      console.log('saveProfilesToDynamoDB: Error', error);
     }
   };
 
@@ -841,12 +839,12 @@ export default function App() {
           const result = await response.json();
           if (result.success && result.profiles) {
             // DynamoDB is source of truth - save to SecureStore for fast access
-            await SecureStore.setItemAsync(getUserKey('childProfiles'), JSON.stringify(result.profiles));
+            await Storage.setItemAsync(getUserKey('childProfiles'), JSON.stringify(result.profiles));
             setProfiles(result.profiles);
             setProfilesLoaded(true);
             
             // Load current profile from SecureStore
-            const savedCurrentProfile = await SecureStore.getItemAsync(getUserKey('currentProfile'));
+            const savedCurrentProfile = await Storage.getItemAsync(getUserKey('currentProfile'));
             if (savedCurrentProfile) {
               const currentProfileData = JSON.parse(savedCurrentProfile);
               const foundProfile = result.profiles.find(p => p.id === currentProfileData.id);
@@ -854,7 +852,7 @@ export default function App() {
                 setCurrentProfile(foundProfile);
               } else {
                 setCurrentProfile(null);
-                await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
+                await Storage.deleteItemAsync(getUserKey('currentProfile'));
               }
             }
             return;
@@ -865,8 +863,8 @@ export default function App() {
       }
       
       // Fallback: Load from SecureStore if DynamoDB fails
-      const savedProfiles = await SecureStore.getItemAsync(getUserKey('childProfiles'));
-      const savedCurrentProfile = await SecureStore.getItemAsync(getUserKey('currentProfile'));
+      const savedProfiles = await Storage.getItemAsync(getUserKey('childProfiles'));
+      const savedCurrentProfile = await Storage.getItemAsync(getUserKey('currentProfile'));
       
       if (savedProfiles) {
         const profilesData = JSON.parse(savedProfiles);
@@ -880,7 +878,7 @@ export default function App() {
             setCurrentProfile(foundProfile);
           } else {
             setCurrentProfile(null);
-            await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
+            await Storage.deleteItemAsync(getUserKey('currentProfile'));
           }
         }
       } else {
@@ -912,14 +910,14 @@ export default function App() {
         // Remove saved stories for this profile from SecureStore
         try {
           const savedStoriesKey = `savedStories_${userEmail}_${profileId}`;
-          await SecureStore.deleteItemAsync(savedStoriesKey);
+          await Storage.deleteItemAsync(savedStoriesKey);
         } catch (error) {
         }
         
         // Remove words for this profile from SecureStore  
         try {
           const wordsKey = `userWords_${userEmail}_${profileId}`;
-          await SecureStore.deleteItemAsync(wordsKey);
+          await Storage.deleteItemAsync(wordsKey);
         } catch (error) {
         }
       }
@@ -930,7 +928,7 @@ export default function App() {
       // If deleting current profile, clear it
       if (currentProfile?.id === profileId) {
         setCurrentProfile(null);
-        await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
+        await Storage.deleteItemAsync(getUserKey('currentProfile'));
       }
       
       // Save updated profiles
@@ -944,27 +942,21 @@ export default function App() {
   };
 
   const saveProfiles = async (newProfiles) => {
-    console.log('saveProfiles: Called with', newProfiles.length, 'profiles');
-    console.log('saveProfiles: isGuestMode=', isGuestMode, 'isSubscribed=', subscriptionStatus?.isSubscribed);
     
     try {
       setProfiles(newProfiles);
       
       // Only premium users save to SecureStore and DynamoDB
       if (isGuestMode || !subscriptionStatus?.isSubscribed) {
-        console.log('saveProfiles: Skipping save - not premium');
         return;
       }
       
-      console.log('saveProfiles: Saving to SecureStore');
       // Save to SecureStore for immediate access with user-specific key
-      await SecureStore.setItemAsync(getUserKey('childProfiles'), JSON.stringify(newProfiles));
+      await Storage.setItemAsync(getUserKey('childProfiles'), JSON.stringify(newProfiles));
       
-      console.log('saveProfiles: Calling saveProfilesToDynamoDB');
       // Save to DynamoDB for persistence across devices/sessions
       await saveProfilesToDynamoDB(newProfiles);
     } catch (error) {
-      console.log('saveProfiles: Error', error);
     }
   };
 
@@ -977,9 +969,9 @@ export default function App() {
       }
       
       if (profile) {
-        await SecureStore.setItemAsync(getUserKey('currentProfile'), JSON.stringify(profile));
+        await Storage.setItemAsync(getUserKey('currentProfile'), JSON.stringify(profile));
       } else {
-        await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
+        await Storage.deleteItemAsync(getUserKey('currentProfile'));
       }
       setCurrentProfile(profile);
     } catch (error) {
@@ -1038,11 +1030,11 @@ export default function App() {
 
   const handleMenuSignOut = async () => {
     try {
-      await SecureStore.deleteItemAsync('accessToken');
-      await SecureStore.deleteItemAsync('userEmail');
+      await Storage.deleteItemAsync('accessToken');
+      await Storage.deleteItemAsync('userEmail');
       // Don't delete profiles - they persist for when user logs back in
-      // await SecureStore.deleteItemAsync(getUserKey('childProfiles'));
-      // await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
+      // await Storage.deleteItemAsync(getUserKey('childProfiles'));
+      // await Storage.deleteItemAsync(getUserKey('currentProfile'));
     } catch (error) {
     }
     setIsAuthenticated(false);
@@ -1075,12 +1067,12 @@ export default function App() {
     setKeyword2('');
     setKeyword3('');
     setGenre('random');
-    SecureStore.deleteItemAsync('lastStory').catch(() => {});
+    Storage.deleteItemAsync('lastStory').catch(() => {});
   };
 
   const loadLastStory = async () => {
     try {
-      const lastStory = await SecureStore.getItemAsync('lastStory');
+      const lastStory = await Storage.getItemAsync('lastStory');
       if (lastStory) setStory(lastStory);
     } catch (error) {
       // No saved story found
@@ -1181,19 +1173,23 @@ export default function App() {
       <>
         <ErrorBoundary>
           <ImageBackground 
-            source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+            source={require("./assets/splash_logo.png")}
             style={globalStyles.backgroundImage}
             imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
+            resizeMode="cover"
           >
             <View style={globalStyles.screenContainer}>
-              <TouchableOpacity style={[globalStyles.homeButton, {alignSelf: 'flex-start', marginBottom: 10}]} onPress={() => {
-                setGenre('random');
-                setCurrentScreen('stories');
-              }}>
-                <Text style={globalStyles.homeButtonText}>🏠 Home</Text>
-              </TouchableOpacity>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
+                <Text style={globalStyles.heading}>Create Your Story</Text>
+                <TouchableOpacity style={globalStyles.homeButton} onPress={() => {
+                  setGenre('random');
+                  setCurrentScreen('stories');
+                }}>
+                  <Text style={globalStyles.homeButtonText}>🏠 Home</Text>
+                </TouchableOpacity>
+              </View>
               
-              <Text style={globalStyles.heading}>Create Your Story</Text>
               <VisualStoryCreator 
                 onCreateStory={handleVisualStoryGenerate}
                 onBack={() => {
@@ -1251,19 +1247,20 @@ export default function App() {
     return (
       <ErrorBoundary>
         <ImageBackground 
-          source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+          source={require("./assets/splash_logo.png")}
           style={globalStyles.backgroundImage}
           imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
         >
           <View style={globalStyles.screenContainer}>
         <View style={globalStyles.screenHeader}>
+          <Text style={globalStyles.heading}>Word Management</Text>
           <TouchableOpacity 
             style={styles.navBtn}
             onPress={handleGoHome}
           >
             <Text style={styles.btnText}>🏠 Home</Text>
           </TouchableOpacity>
-          <Text style={globalStyles.heading}>Word Management</Text>
           {!subscriptionStatus?.isSubscribed && (
             <TouchableOpacity 
               style={[styles.statusFlag, isGuestMode ? styles.guestFlag : styles.freeFlag]}
@@ -1281,6 +1278,7 @@ export default function App() {
           darkMode={darkMode}
           currentProfile={currentProfile}
           isOffline={isOffline}
+          onProfilesPress={() => setCurrentScreen('profiles')}
         />
       </View>
         </ImageBackground>
@@ -1292,9 +1290,10 @@ export default function App() {
     return (
       <ErrorBoundary>
         <ImageBackground 
-          source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+          source={require("./assets/splash_logo.png")}
           style={globalStyles.backgroundImage}
           imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
         >
           <View style={globalStyles.screenContainer}>
           <View style={globalStyles.screenHeader}>
@@ -1323,19 +1322,20 @@ export default function App() {
     return (
       <ErrorBoundary>
         <ImageBackground 
-          source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+          source={require("./assets/splash_logo.png")}
           style={globalStyles.backgroundImage}
           imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
         >
           <View style={globalStyles.screenContainer}>
           <View style={globalStyles.screenHeader}>
+            <Text style={globalStyles.heading}>Saved Stories</Text>
             <TouchableOpacity 
               style={styles.navBtn}
               onPress={handleGoHome}
             >
               <Text style={styles.btnText}>🏠 Home</Text>
             </TouchableOpacity>
-            <Text style={globalStyles.heading}>Saved Stories</Text>
           </View>
           <SavedStoriesScreen 
             darkMode={darkMode} 
@@ -1357,19 +1357,20 @@ export default function App() {
     return (
       <ErrorBoundary>
         <ImageBackground 
-          source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+          source={require("./assets/splash_logo.png")}
           style={globalStyles.backgroundImage}
           imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
         >
           <View style={globalStyles.screenContainer}>
           <View style={globalStyles.screenHeader}>
+            <Text style={globalStyles.heading}>Support</Text>
             <TouchableOpacity 
               style={styles.navBtn}
               onPress={handleGoHome}
             >
               <Text style={styles.btnText}>🏠 Home</Text>
             </TouchableOpacity>
-            <Text style={globalStyles.heading}>Support</Text>
           </View>
           <SupportScreen darkMode={darkMode} userEmail={userEmail} />
         </View>
@@ -1382,19 +1383,20 @@ export default function App() {
     return (
       <ErrorBoundary>
         <ImageBackground 
-          source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+          source={require("./assets/splash_logo.png")}
           style={globalStyles.backgroundImage}
           imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
         >
           <View style={globalStyles.screenContainer}>
           <View style={globalStyles.screenHeader}>
+            <Text style={globalStyles.heading}>FAQ</Text>
             <TouchableOpacity 
               style={styles.navBtn}
               onPress={handleGoHome}
             >
               <Text style={styles.btnText}>🏠 Home</Text>
             </TouchableOpacity>
-            <Text style={globalStyles.heading}>FAQ</Text>
           </View>
           <FAQScreen 
             darkMode={darkMode} 
@@ -1418,9 +1420,10 @@ export default function App() {
     return (
       <ErrorBoundary>
         <ImageBackground 
-          source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+          source={require("./assets/splash_logo.png")}
           style={globalStyles.backgroundImage}
           imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
         >
           <ProfileScreen 
             darkMode={darkMode}
@@ -1439,16 +1442,26 @@ export default function App() {
   return (
     <ErrorBoundary>
       <ImageBackground 
-        source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+        source={require("./assets/splash_logo.png")}
         style={globalStyles.backgroundImage}
         imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
       >
         {isOffline && (
           <View style={globalStyles.offlineBanner}>
             <Text style={globalStyles.offlineBannerText}>📵 Offline Mode - Viewing cached data only</Text>
           </View>
         )}
-        <ScrollView style={globalStyles.screenContainer}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{flex: 1}}
+          keyboardVerticalOffset={0}
+        >
+        <ScrollView 
+          style={globalStyles.screenContainer}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
       <View style={styles.titleRow}>
         <View style={{flex: 1}} />
         <Text style={globalStyles.title}>SpellTales</Text>
@@ -1692,14 +1705,8 @@ export default function App() {
         </View>
       </Modal>
         
-        {/* Banner Ad Placeholder for Free/Guest Users */}
-        {!subscriptionStatus?.isSubscribed && (
-          <View style={styles.bannerAdPlaceholder}>
-            <Text style={styles.bannerAdText}>📱 Ad Space - AdMob Banner</Text>
-          </View>
-        )}
-        
         </ScrollView>
+        </KeyboardAvoidingView>
       </ImageBackground>
     </ErrorBoundary>
   );

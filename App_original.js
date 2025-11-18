@@ -115,11 +115,9 @@ export default function App() {
   // Get current age rating (from profile or global)
   const loadUserWords = async () => {
     if (!userEmail || isGuestMode) {
-      console.log('loadUserWords: No userEmail or guest mode, returning empty array');
       return [];
     }
     
-    console.log('loadUserWords: Loading words for', userEmail);
     
     try {
       const response = await fetch(process.env.EXPO_PUBLIC_LAMBDA_URL, {
@@ -132,19 +130,15 @@ export default function App() {
       });
 
       const result = await response.json();
-      console.log('loadUserWords: API response', result);
       
       if (result.success && result.words) {
-        console.log('loadUserWords: Returning words', result.words);
         setUserWords(result.words); // Update state for other uses
         return result.words;
       } else {
-        console.log('loadUserWords: No words found, returning empty array');
         setUserWords([]);
         return [];
       }
     } catch (error) {
-      console.log('Error loading user words:', error);
       setUserWords([]);
       return [];
     }
@@ -455,12 +449,9 @@ export default function App() {
         ageRating: isGuestMode ? 'toddlers' : getCurrentAgeRating(),
         spellingWords: (() => {
           if (isGuestMode) {
-            console.log('Story generation: Guest mode - no spelling words');
             return [];
           }
-          console.log('Story generation: currentUserWords =', currentUserWords);
           const words = currentUserWords.length > 0 ? currentUserWords : [];
-          console.log('Story generation: using words =', words);
           return words;
         })()
       };
@@ -602,7 +593,6 @@ export default function App() {
         }
       }
     } catch (error) {
-      console.log('Error loading profiles:', error);
     }
   };
 
@@ -611,7 +601,6 @@ export default function App() {
       await SecureStore.setItemAsync('childProfiles', JSON.stringify(newProfiles));
       setProfiles(newProfiles);
     } catch (error) {
-      console.log('Error saving profiles:', error);
     }
   };
 
@@ -624,7 +613,6 @@ export default function App() {
       }
       setCurrentProfile(profile);
     } catch (error) {
-      console.log('Error saving current profile:', error);
     }
   };
 
@@ -685,7 +673,6 @@ export default function App() {
       await SecureStore.deleteItemAsync('childProfiles');
       await SecureStore.deleteItemAsync('currentProfile');
     } catch (error) {
-      console.log('Error clearing stored credentials:', error);
     }
     setIsAuthenticated(false);
     setUserEmail('');

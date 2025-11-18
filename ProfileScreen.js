@@ -4,7 +4,6 @@ import { createGlobalStyles } from './styles/GlobalStyles';
 import { checkBiometricSupport, authenticateWithBiometrics } from './utils/biometricAuth';
 
 export default function ProfileScreen({ darkMode, profiles, onProfilesChange, onDeleteProfile, onBack, userEmail, isOffline }) {
-  console.log('ProfileScreen mounted');
   const [newProfileName, setNewProfileName] = useState('');
   const [newProfileAge, setNewProfileAge] = useState('children');
   const [showAgeDropdown, setShowAgeDropdown] = useState(false);
@@ -21,9 +20,7 @@ export default function ProfileScreen({ darkMode, profiles, onProfilesChange, on
 
   const checkBiometrics = async () => {
     const available = await checkBiometricSupport();
-    console.log('Biometric available in ProfileScreen:', available);
     setBiometricAvailable(available);
-    console.log('Set biometricAvailable to:', available);
   };
 
   const ageOptions = [
@@ -86,21 +83,6 @@ export default function ProfileScreen({ darkMode, profiles, onProfilesChange, on
   };
 
   const addProfileAction = () => {
-    if (!newProfileName.trim()) {
-      Alert.alert('Error', 'Please enter a profile name');
-      return;
-    }
-    
-    if (profiles.length >= 5) {
-      Alert.alert('Limit Reached', 'You can only create up to 5 profiles. Please delete an existing profile first.');
-      return;
-    }
-    
-    if (profiles.some(p => p.name.toLowerCase() === newProfileName.trim().toLowerCase())) {
-      Alert.alert('Error', 'Profile name already exists');
-      return;
-    }
-
     const newProfile = {
       id: Date.now().toString(),
       name: newProfileName.trim(),
@@ -116,7 +98,22 @@ export default function ProfileScreen({ darkMode, profiles, onProfilesChange, on
   };
 
   const addProfile = () => {
-    addProfileAction();
+    if (!newProfileName.trim()) {
+      Alert.alert('Error', 'Please enter a profile name');
+      return;
+    }
+    
+    if (profiles.length >= 5) {
+      Alert.alert('Limit Reached', 'You can only create up to 5 profiles. Please delete an existing profile first.');
+      return;
+    }
+    
+    if (profiles.some(p => p.name.toLowerCase() === newProfileName.trim().toLowerCase())) {
+      Alert.alert('Error', 'Profile name already exists');
+      return;
+    }
+    
+    requestPassword(addProfileAction);
   };
 
   const deleteProfile = (profileId) => {
@@ -173,10 +170,10 @@ export default function ProfileScreen({ darkMode, profiles, onProfilesChange, on
   return (
     <ScrollView style={globalStyles.screenContainer}>
       <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
+        <Text style={globalStyles.heading}>Child Profiles</Text>
         <TouchableOpacity style={globalStyles.homeButton} onPress={onBack}>
           <Text style={globalStyles.homeButtonText}>🏠 Home</Text>
         </TouchableOpacity>
-        <Text style={globalStyles.heading}>Child Profiles</Text>
       </View>
 
       <View style={globalStyles.section}>
@@ -309,7 +306,6 @@ export default function ProfileScreen({ darkMode, profiles, onProfilesChange, on
                 <Text style={globalStyles.buttonText}>Confirm</Text>
               </TouchableOpacity>
             </View>
-            {console.log('Rendering modal, biometricAvailable:', biometricAvailable)}
             {biometricAvailable && (
               <TouchableOpacity 
                 style={[globalStyles.linkButton, {marginTop: 10}]}

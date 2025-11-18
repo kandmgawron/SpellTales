@@ -1,10 +1,9 @@
 import * as LocalAuthentication from 'expo-local-authentication';
-import * as SecureStore from 'expo-secure-store';
+import * as Storage from './storage';
 
 export const checkBiometricSupport = async () => {
   const compatible = await LocalAuthentication.hasHardwareAsync();
   const enrolled = await LocalAuthentication.isEnrolledAsync();
-  console.log('Biometric check - compatible:', compatible, 'enrolled:', enrolled);
   return compatible && enrolled;
 };
 
@@ -24,9 +23,9 @@ export const authenticateWithBiometrics = async (reason = 'Authenticate to conti
 
 export const saveBiometricCredentials = async (email, password) => {
   try {
-    await SecureStore.setItemAsync('biometric_email', email);
-    await SecureStore.setItemAsync('biometric_password', password);
-    await SecureStore.setItemAsync('biometric_enabled', 'true');
+    await Storage.setItemAsync('biometric_email', email);
+    await Storage.setItemAsync('biometric_password', password);
+    await Storage.setItemAsync('biometric_enabled', 'true');
     return true;
   } catch (error) {
     console.error('Error saving biometric credentials:', error);
@@ -36,11 +35,11 @@ export const saveBiometricCredentials = async (email, password) => {
 
 export const getBiometricCredentials = async () => {
   try {
-    const enabled = await SecureStore.getItemAsync('biometric_enabled');
+    const enabled = await Storage.getItemAsync('biometric_enabled');
     if (enabled !== 'true') return null;
     
-    const email = await SecureStore.getItemAsync('biometric_email');
-    const password = await SecureStore.getItemAsync('biometric_password');
+    const email = await Storage.getItemAsync('biometric_email');
+    const password = await Storage.getItemAsync('biometric_password');
     
     if (email && password) {
       return { email, password };
@@ -54,9 +53,9 @@ export const getBiometricCredentials = async () => {
 
 export const clearBiometricCredentials = async () => {
   try {
-    await SecureStore.deleteItemAsync('biometric_email');
-    await SecureStore.deleteItemAsync('biometric_password');
-    await SecureStore.deleteItemAsync('biometric_enabled');
+    await Storage.deleteItemAsync('biometric_email');
+    await Storage.deleteItemAsync('biometric_password');
+    await Storage.deleteItemAsync('biometric_enabled');
     return true;
   } catch (error) {
     console.error('Error clearing biometric credentials:', error);
@@ -66,7 +65,7 @@ export const clearBiometricCredentials = async () => {
 
 export const isBiometricEnabled = async () => {
   try {
-    const enabled = await SecureStore.getItemAsync('biometric_enabled');
+    const enabled = await Storage.getItemAsync('biometric_enabled');
     return enabled === 'true';
   } catch (error) {
     return false;

@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Alert, ScrollView, StyleSheet } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import * as Storage from './utils/storage';
 import { createGlobalStyles } from './styles/GlobalStyles';
 import PasswordModal from './components/PasswordModal';
 
 export default function AgeRatingScreen({ darkMode, userEmail, accessToken, onAgeRatingChange, currentProfile, isOffline }) {
-  console.log('AgeRatingScreen component mounted');
   const [currentAgeRating, setCurrentAgeRating] = useState('children');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [pendingRating, setPendingRating] = useState(null);
@@ -24,7 +23,7 @@ export default function AgeRatingScreen({ darkMode, userEmail, accessToken, onAg
 
   const loadCurrentAgeRating = async () => {
     try {
-      const rating = await SecureStore.getItemAsync('ageRating');
+      const rating = await Storage.getItemAsync('ageRating');
       if (rating) {
         setCurrentAgeRating(rating);
       }
@@ -51,7 +50,7 @@ export default function AgeRatingScreen({ darkMode, userEmail, accessToken, onAg
 
   const handleAgeRatingChange = async (rating) => {
     try {
-      await SecureStore.setItemAsync('ageRating', rating);
+      await Storage.setItemAsync('ageRating', rating);
       setCurrentAgeRating(rating);
       if (onAgeRatingChange) {
         onAgeRatingChange(rating);
