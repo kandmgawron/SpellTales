@@ -5,7 +5,7 @@ import { StoreKitNative } from './StoreKitNative';
 // Subscription service for App Store subscriptions
 export class SubscriptionService {
   static productIds = {
-    monthly: 'com.bedtimestories.premium.monthly'
+    monthly: 'monthlypremium'
   };
 
   static premiumUsersCache = null;
@@ -13,6 +13,11 @@ export class SubscriptionService {
   static CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
   static async checkSubscriptionStatus(userEmail) {
+    // Development/preview build override - never active in App Store builds
+    if (Constants.appOwnership === 'expo' && process.env.EXPO_PUBLIC_FORCE_PREMIUM === 'true') {
+      return { isSubscribed: true, subscriptionType: 'premium', expiryDate: null };
+    }
+
     try {
       // Use backend API for subscription status check
       const response = await fetch('https://rnbcv6rsb7.execute-api.eu-west-2.amazonaws.com/prod/subscription', {

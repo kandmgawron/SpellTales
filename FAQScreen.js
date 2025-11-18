@@ -44,7 +44,7 @@ export default function FAQScreen({ darkMode, userEmail, isGuest, isSubscribed, 
     {
       id: 7,
       question: "How do subscriptions work?",
-      answer: "Premium subscriptions are $4.99/month and can be cancelled anytime. Benefits include unlimited ad-free stories, story saving and management, custom word management, and priority support."
+      answer: "Premium subscriptions are £2.99/month and can be cancelled anytime. Benefits include unlimited ad-free stories, story saving and management, custom word management, and priority support."
     },
     {
       id: 8,
