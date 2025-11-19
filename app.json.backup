@@ -66,13 +66,7 @@
     "plugins": [
       "expo-asset",
       "expo-secure-store",
-      "expo-font",
-      [
-        "react-native-google-mobile-ads",
-        {
-          "iosAppId": "ca-app-pub-6556278678527690~3220030050"
-        }
-      ]
+      "expo-font"
     ],
     "owner": "kategawron",
     "runtimeVersion": {
