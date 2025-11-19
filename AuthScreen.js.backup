@@ -185,38 +185,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
     }
   };
 
-  const resendVerificationCode = async (email) => {
-    const response = await fetch(`https://cognito-idp.${CONFIG.COGNITO_REGION}.amazonaws.com/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-amz-json-1.1',
-        'X-Amz-Target': 'AWSCognitoIdentityProviderService.ResendConfirmationCode'
-      },
-      body: JSON.stringify({
-        ClientId: CONFIG.COGNITO_CLIENT_ID,
-        Username: email
-      })
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.message || 'Failed to resend verification code');
-    }
-    return data;
-  };
-
-  const handleResendCode = async () => {
-    setLoading(true);
-    try {
-      await resendVerificationCode(email);
-      Alert.alert('Success', 'Verification code sent to your email');
-    } catch (error) {
-      Alert.alert('Error', error.message || 'Failed to resend code');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleVerifyCode = async () => {
     if (!verificationCode) {
       Alert.alert('Error', 'Please enter verification code');
@@ -505,16 +473,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
         >
           <Text style={globalStyles.buttonText}>
             {loading ? 'Verifying...' : 'Verify Email'}
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[globalStyles.secondaryButton, loading && globalStyles.buttonDisabled]}
-          onPress={handleResendCode}
-          disabled={loading}
-        >
-          <Text style={globalStyles.secondaryButtonText}>
-            Resend Code
           </Text>
         </TouchableOpacity>
       </View>
