@@ -254,11 +254,42 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
     setLoading(true);
     try {
       await confirmSignUp(email, verificationCode);
-      Alert.alert(
-        'Success', 
-        'Email verified! Check out our premium features.',
-        [{ text: 'OK', onPress: () => setMode('subscription') }]
-      );
+      
+      // After successful verification, automatically sign in the user
+      if (password) {
+        // If we have the password (from recent signup), sign them in automatically
+        const response = await fetch('https://rnbcv6rsb7.execute-api.eu-west-2.amazonaws.com/prod/auth', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'signIn',
+            email: email,
+            password: password
+          })
+        });
+
+        const result = await response.json();
+        
+        if (result.success) {
+          onAuthSuccess(result.AuthenticationResult, email, false);
+        } else {
+          // If auto sign-in fails, show success message and go to sign-in
+          Alert.alert(
+            'Success', 
+            'Email verified! Please sign in with your credentials.',
+            [{ text: 'OK', onPress: () => setMode('signin') }]
+          );
+        }
+      } else {
+        // No password available, redirect to sign-in
+        Alert.alert(
+          'Success', 
+          'Email verified! Please sign in with your credentials.',
+          [{ text: 'OK', onPress: () => setMode('signin') }]
+        );
+      }
     } catch (error) {
       Alert.alert('Error', error.message || 'Invalid verification code');
     } finally {
@@ -557,43 +588,45 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
         </TouchableOpacity>
       </View>
       
-      <Text style={globalStyles.heading}>
+      <Text style={[globalStyles.authTitle, fontsLoaded && { fontFamily: 'Nunito_600SemiBold' }]}>
         Reset Password
       </Text>
       
-      <Text style={globalStyles.welcomeText}>
-        Enter the code sent to {email} and your new password
-      </Text>
-      
-      <TextInput
-        style={globalStyles.authInput}
-        value={verificationCode}
-        onChangeText={setVerificationCode}
-        placeholder="Verification Code"
-        placeholderTextColor="#888"
-        keyboardType="number-pad"
-        autoCapitalize="none"
-      />
-      
-      <TextInput
-        style={globalStyles.authInput}
-        value={newPassword}
-        onChangeText={setNewPassword}
-        placeholder="New Password"
-        placeholderTextColor="#888"
-        secureTextEntry
-        autoCapitalize="none"
-      />
-      
-      <TouchableOpacity 
-        style={[globalStyles.primaryButton, loading && globalStyles.buttonDisabled]}
-        onPress={handleResetPassword}
-        disabled={loading}
-      >
-        <Text style={globalStyles.buttonText}>
-          {loading ? 'Resetting...' : 'Reset Password'}
+      <View style={[globalStyles.section, {width: '100%'}]}>
+        <Text style={globalStyles.welcomeText}>
+          Enter the code sent to {email} and your new password
         </Text>
-      </TouchableOpacity>
+        
+        <TextInput
+          style={globalStyles.textInput}
+          value={verificationCode}
+          onChangeText={setVerificationCode}
+          placeholder="Verification Code"
+          placeholderTextColor="#888"
+          keyboardType="number-pad"
+          autoCapitalize="none"
+        />
+        
+        <TextInput
+          style={globalStyles.textInput}
+          value={newPassword}
+          onChangeText={setNewPassword}
+          placeholder="New Password"
+          placeholderTextColor="#888"
+          secureTextEntry
+          autoCapitalize="none"
+        />
+        
+        <TouchableOpacity 
+          style={[globalStyles.primaryButton, loading && globalStyles.buttonDisabled]}
+          onPress={handleResetPassword}
+          disabled={loading}
+        >
+          <Text style={globalStyles.buttonText}>
+            {loading ? 'Resetting...' : 'Reset Password'}
+          </Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
