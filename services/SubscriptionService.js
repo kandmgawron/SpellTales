@@ -13,8 +13,8 @@ export class SubscriptionService {
   static CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
   static async checkSubscriptionStatus(userEmail) {
-    // Development/preview build override - never active in App Store builds
-    if (Constants.appOwnership === 'expo' && process.env.EXPO_PUBLIC_FORCE_PREMIUM === 'true') {
+    // Development override - only works in development and preview builds, never in production
+    if (__DEV__ || (process.env.EXPO_PUBLIC_FORCE_PREMIUM === 'true' && Constants.executionEnvironment !== 'storeClient')) {
       return { isSubscribed: true, subscriptionType: 'premium', expiryDate: null };
     }
 
@@ -46,8 +46,8 @@ export class SubscriptionService {
   }
 
   static async isPremiumUser(userEmail) {
-    // Development/preview build override - never active in App Store builds
-    if (Constants.appOwnership === 'expo' && process.env.EXPO_PUBLIC_FORCE_PREMIUM === 'true') {
+    // Development override - only works in development and preview builds, never in production
+    if (__DEV__ || (process.env.EXPO_PUBLIC_FORCE_PREMIUM === 'true' && Constants.executionEnvironment !== 'storeClient')) {
       return true;
     }
     

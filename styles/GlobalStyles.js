@@ -45,7 +45,9 @@ export const createGlobalStyles = (darkMode) => {
     // Layout
     container: {
       flex: 1,
+      backgroundColor: theme.surface,
       padding: 20,
+      borderRadius: 12,
     },
     
     screenContainer: {

@@ -176,91 +176,93 @@ export default function VisualStoryCreator({ onCreateStory, onBack, darkMode, ag
 
   return (
     <ScrollView style={{flex: 1}}>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Choose Genre</Text>
-        <View style={styles.grid}>
-          {genres.map(genre => (
-            <TouchableOpacity
-              key={genre.id}
-              style={[
-                globalStyles.iconButton,
-                styles.visualOption,
-                selectedGenre === genre.id && globalStyles.iconButtonSelected
-              ]}
-              onPress={() => setSelectedGenre(genre.id)}
-            >
-              <Text style={styles.emoji}>{genre.emoji}</Text>
-              <Text style={globalStyles.iconButtonText}>{genre.name}</Text>
-            </TouchableOpacity>
-          ))}
+      <View style={globalStyles.container}>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Choose Genre</Text>
+          <View style={styles.grid}>
+            {genres.map(genre => (
+              <TouchableOpacity
+                key={genre.id}
+                style={[
+                  globalStyles.iconButton,
+                  styles.visualOption,
+                  selectedGenre === genre.id && globalStyles.iconButtonSelected
+                ]}
+                onPress={() => setSelectedGenre(genre.id)}
+              >
+                <Text style={styles.emoji}>{genre.emoji}</Text>
+                <Text style={globalStyles.iconButtonText}>{genre.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
-      </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Choose 2 Characters</Text>
-        <Text style={styles.sectionSubtitle}>
-          Selected: {selectedCharacters.length}/2
-        </Text>
-        <View style={styles.grid}>
-          {characters.map(character => (
-            <TouchableOpacity
-              key={character.id}
-              style={[
-                globalStyles.iconButton,
-                styles.visualOption,
-                selectedCharacters.find(c => c.id === character.id) && globalStyles.iconButtonSelected
-              ]}
-              onPress={() => handleCharacterSelect(character)}
-            >
-              <Text style={styles.emoji}>{character.emoji}</Text>
-              <Text style={globalStyles.iconButtonText}>{character.name}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Choose up to 3 Keywords</Text>
-        <Text style={styles.sectionSubtitle}>
-          Selected: {selectedKeywords.length}/3
-        </Text>
-        <View style={styles.grid}>
-          {keywords.map(keyword => (
-            <TouchableOpacity
-              key={keyword.id}
-              style={[
-                globalStyles.iconButton,
-                styles.visualOption,
-                selectedKeywords.find(k => k.id === keyword.id) && globalStyles.iconButtonSelected
-              ]}
-              onPress={() => handleKeywordSelect(keyword)}
-            >
-              <Text style={styles.emoji}>{keyword.emoji}</Text>
-              <Text style={globalStyles.iconButtonText}>{keyword.name}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={globalStyles.outlineButton}
-          onPress={handleRandomStory}
-        >
-          <Text style={globalStyles.outlineButtonText}>
-            🎲 Still no ideas? Surprise Me!
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Choose 2 Characters</Text>
+          <Text style={styles.sectionSubtitle}>
+            Selected: {selectedCharacters.length}/2
           </Text>
-        </TouchableOpacity>
+          <View style={styles.grid}>
+            {characters.map(character => (
+              <TouchableOpacity
+                key={character.id}
+                style={[
+                  globalStyles.iconButton,
+                  styles.visualOption,
+                  selectedCharacters.find(c => c.id === character.id) && globalStyles.iconButtonSelected
+                ]}
+                onPress={() => handleCharacterSelect(character)}
+              >
+                <Text style={styles.emoji}>{character.emoji}</Text>
+                <Text style={globalStyles.iconButtonText}>{character.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
 
-        <TouchableOpacity
-          style={[globalStyles.primaryButton, !canCreate && globalStyles.buttonDisabled]}
-          onPress={handleCreateStory}
-          disabled={!canCreate}
-        >
-          <Text style={globalStyles.buttonText}>
-            {canCreate ? '✨ Make My Story!' : 'Select 2 Characters & 1 Setting'}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Choose up to 3 Keywords</Text>
+          <Text style={styles.sectionSubtitle}>
+            Selected: {selectedKeywords.length}/3
           </Text>
-        </TouchableOpacity>
+          <View style={styles.grid}>
+            {keywords.map(keyword => (
+              <TouchableOpacity
+                key={keyword.id}
+                style={[
+                  globalStyles.iconButton,
+                  styles.visualOption,
+                  selectedKeywords.find(k => k.id === keyword.id) && globalStyles.iconButtonSelected
+                ]}
+                onPress={() => handleKeywordSelect(keyword)}
+              >
+                <Text style={styles.emoji}>{keyword.emoji}</Text>
+                <Text style={globalStyles.iconButtonText}>{keyword.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={globalStyles.outlineButton}
+            onPress={handleRandomStory}
+          >
+            <Text style={globalStyles.outlineButtonText}>
+              🎲 Surprise Me!
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[globalStyles.primaryButton, !canCreate && globalStyles.buttonDisabled]}
+            onPress={handleCreateStory}
+            disabled={!canCreate}
+          >
+            <Text style={[globalStyles.buttonText, {textAlign: 'center'}]}>
+              {canCreate ? '✨ Make My Story!' : 'Select 2 Characters & 1 Setting'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </ScrollView>
   );
@@ -279,7 +281,7 @@ const getStyles = (darkMode) => StyleSheet.create({
     marginLeft: 15,
   },
   section: {
-    padding: 20,
+    padding: 10,
     paddingTop: 10,
   },
   sectionTitle: {
@@ -296,10 +298,10 @@ const getStyles = (darkMode) => StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 6,
   },
   visualOption: {
-    width: '30%',
+    width: '31.5%',
   },
   emoji: {
     fontSize: 28,

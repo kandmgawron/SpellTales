@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Modal } from 'react-native';
+import { CONFIG } from '../config';
 import { createGlobalStyles } from '../styles/GlobalStyles';
-import { checkBiometricSupport, authenticateWithBiometrics } from '../utils/biometricAuth';
 
 export default function PasswordModal({ 
   visible, 
@@ -34,7 +34,7 @@ export default function PasswordModal({
         },
         body: JSON.stringify({
           AuthFlow: 'USER_PASSWORD_AUTH',
-          ClientId: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID,
+          ClientId: CONFIG.COGNITO_CLIENT_ID,
           AuthParameters: {
             USERNAME: userEmail,
             PASSWORD: password

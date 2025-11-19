@@ -67,6 +67,7 @@
       "expo-asset",
       "expo-secure-store",
       "expo-font",
+      "expo-local-authentication",
       [
         "react-native-google-mobile-ads",
         {

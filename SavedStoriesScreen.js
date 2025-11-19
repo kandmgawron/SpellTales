@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Alert, ScrollView, StyleSheet, Modal, TextInput } from 'react-native';
 import * as Storage from './utils/storage';
 import Markdown from 'react-native-markdown-display';
+import { CONFIG } from './config';
 import { createGlobalStyles } from './styles/GlobalStyles';
 
-export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile, onReloadStory, isOffline }) {
+export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile, globalAgeRating, onReloadStory, isOffline }) {
   const globalStyles = createGlobalStyles(darkMode);
   const [savedStories, setSavedStories] = useState([]);
   const [allStories, setAllStories] = useState([]);
@@ -13,19 +14,50 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [password, setPassword] = useState('');
   const [pendingAction, setPendingAction] = useState(null);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+
+  // Age rating hierarchy - higher numbers can access lower numbers
+  const ageRatingHierarchy = {
+    'toddlers': 1,
+    'children': 2,
+    'young-teens': 3,
+    'teens': 4
+  };
+
+  const canAccessStory = (storyAgeRating, profileAgeRating) => {
+    const storyLevel = ageRatingHierarchy[storyAgeRating] || 1;
+    const profileLevel = ageRatingHierarchy[profileAgeRating] || 1;
+    return profileLevel >= storyLevel;
+  };
 
   useEffect(() => {
     loadSavedStories();
+    checkBiometrics();
   }, []);
 
   useEffect(() => {
     loadSavedStories();
   }, [currentProfile]);
 
+  const checkBiometrics = async () => {
+    const available = await checkBiometricSupport();
+    setBiometricAvailable(available);
+  };
+
   const requestPassword = (action) => {
     setPendingAction(() => action);
     setShowPasswordModal(true);
     setPassword('');
+  };
+
+  const verifyWithBiometrics = async () => {
+    const authenticated = await authenticateWithBiometrics('Verify your identity');
+    if (authenticated && pendingAction) {
+      setShowPasswordModal(false);
+      pendingAction();
+      setPendingAction(null);
+      setPassword('');
+    }
   };
 
   const verifyPassword = async () => {
@@ -38,7 +70,7 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
         },
         body: JSON.stringify({
           AuthFlow: 'USER_PASSWORD_AUTH',
-          ClientId: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID,
+          ClientId: CONFIG.COGNITO_CLIENT_ID,
           AuthParameters: {
             USERNAME: userEmail,
             PASSWORD: password
@@ -97,9 +129,9 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
           setAllStories(formattedStories);
           
           
-          // Filter stories by current profile
+          // Show all stories for the profile, but age restrictions apply when opening
           if (currentProfile) {
-            // If a profile is selected, only show stories for that profile
+            // If a profile is selected, show all stories for that profile
             const filtered = formattedStories.filter(story => story.profileId === currentProfile.id);
             setSavedStories(filtered);
           } else {
@@ -124,7 +156,7 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
         const allStoriesData = JSON.parse(stories);
         setAllStories(allStoriesData);
         
-        // Filter stories by current profile
+        // Show all stories for the profile, but age restrictions apply when opening
         if (currentProfile) {
           const filtered = allStoriesData.filter(story => story.profileId === currentProfile.id);
           setSavedStories(filtered);
@@ -244,11 +276,11 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
   };
 
   const canReloadStory = (story) => {
-    if (!currentProfile) return true;
-    const ageOrder = ['children', 'teens', 'young_teens', 'adults'];
-    const currentIndex = ageOrder.indexOf(currentProfile.ageRating);
-    const storyIndex = ageOrder.indexOf(story.ageRating);
-    return storyIndex <= currentIndex;
+    // Determine which age rating to use
+    const ageRatingToCheck = currentProfile ? currentProfile.ageRating : globalAgeRating;
+    
+    // Use the same age rating hierarchy as defined above
+    return canAccessStory(story.ageRating, ageRatingToCheck);
   };
 
   const reloadStory = (story) => {
@@ -466,6 +498,14 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
                 <Text style={globalStyles.buttonText}>Confirm</Text>
               </TouchableOpacity>
             </View>
+            {biometricAvailable && (
+              <TouchableOpacity 
+                style={[globalStyles.linkButton, {marginTop: 10}]}
+                onPress={verifyWithBiometrics}
+              >
+                <Text style={globalStyles.linkButtonText}>🔐 Use Face ID / Touch ID</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </Modal>

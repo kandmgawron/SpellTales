@@ -80,28 +80,7 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
         }
         onAuthSuccess(result.AuthenticationResult, email, false);
       } else {
-        // Check if user is unconfirmed (check multiple possible error formats)
-        const errorMessage = result.error || '';
-        if (errorMessage.includes('UserNotConfirmed') || 
-            errorMessage.includes('not confirmed') || 
-            errorMessage.includes('User is not confirmed')) {
-          Alert.alert(
-            'Email Not Verified',
-            'Your email address has not been verified yet. Please check your email for the verification code.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { 
-                text: 'Verify Now', 
-                onPress: () => {
-                  console.log('Switching to verify mode for email:', email);
-                  setMode('verify');
-                }
-              }
-            ]
-          );
-        } else {
-          Alert.alert('Error', result.error || 'Invalid email or password');
-        }
+        Alert.alert('Error', result.error || 'Invalid email or password');
       }
     } catch (error) {
       Alert.alert('Error', 'Login failed. Please try again.');
@@ -500,24 +479,24 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
   );
 
   const renderVerify = () => (
-    <View style={globalStyles.authFormContainer}>
-      <View style={{width: '100%', alignItems: 'flex-start', marginBottom: 20}}>
-        <TouchableOpacity style={globalStyles.homeButton} onPress={() => setMode('welcome')}>
-          <Text style={globalStyles.homeButtonText}>🏠 Home</Text>
-        </TouchableOpacity>
-      </View>
-      
-      <Text style={[globalStyles.authTitle, fontsLoaded && { fontFamily: 'Nunito_600SemiBold' }]}>
-        Verify Email
-      </Text>
-      
-      <View style={[globalStyles.section, {width: '100%'}]}>
+    <View style={globalStyles.container}>
+      <View style={globalStyles.authFormContainer}>
+        <View style={{width: '100%', alignItems: 'flex-start', marginBottom: 20}}>
+          <TouchableOpacity style={globalStyles.homeButton} onPress={() => setMode('welcome')}>
+            <Text style={globalStyles.homeButtonText}>🏠 Home</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <Text style={globalStyles.heading}>
+          Verify Email
+        </Text>
+        
         <Text style={globalStyles.welcomeText}>
           Enter the verification code sent to {email}
         </Text>
         
         <TextInput
-          style={globalStyles.textInput}
+          style={globalStyles.authInput}
           value={verificationCode}
           onChangeText={setVerificationCode}
           placeholder="Verification Code"
@@ -537,11 +516,11 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
         </TouchableOpacity>
         
         <TouchableOpacity 
-          style={[globalStyles.linkButton, loading && globalStyles.buttonDisabled]}
+          style={[globalStyles.secondaryButton, loading && globalStyles.buttonDisabled]}
           onPress={handleResendCode}
           disabled={loading}
         >
-          <Text style={globalStyles.linkButtonText}>
+          <Text style={globalStyles.secondaryButtonText}>
             Resend Code
           </Text>
         </TouchableOpacity>
