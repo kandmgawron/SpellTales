@@ -33,7 +33,7 @@ export default function UpgradeModal({ visible, onClose, onSubscribe, onSignUp, 
 
           <View style={styles.pricingContainer}>
             <Text style={styles.priceTitle}>Premium Monthly</Text>
-            <Text style={styles.price}>$4.99/month</Text>
+            <Text style={styles.price}>£2.99/month</Text>
             <Text style={styles.priceDesc}>Cancel anytime</Text>
           </View>
 

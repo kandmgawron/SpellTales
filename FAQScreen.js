@@ -1,14 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, TextInput } from 'react-native';
+import { CONFIG } from './config';
 import { createGlobalStyles } from './styles/GlobalStyles';
-import * as SecureStore from 'expo-secure-store';
+import * as Storage from './utils/storage';
 
 export default function FAQScreen({ darkMode, userEmail, isGuest, isSubscribed, onAccountDeleted }) {
   const [expandedSection, setExpandedSection] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
   const globalStyles = createGlobalStyles(darkMode);
+
+  useEffect(() => {
+    checkBiometrics();
+  }, []);
+
+  const checkBiometrics = async () => {
+    const available = await checkBiometricSupport();
+    setBiometricAvailable(available);
+  };
 
   const faqData = [
     {
@@ -44,7 +55,7 @@ export default function FAQScreen({ darkMode, userEmail, isGuest, isSubscribed, 
     {
       id: 7,
       question: "How do subscriptions work?",
-      answer: "Premium subscriptions are $4.99/month and can be cancelled anytime. Benefits include unlimited ad-free stories, story saving and management, custom word management, and priority support."
+      answer: "Premium subscriptions are £2.99/month and can be cancelled anytime. Benefits include unlimited ad-free stories, story saving and management, custom word management, and priority support."
     },
     {
       id: 8,
@@ -67,6 +78,13 @@ export default function FAQScreen({ darkMode, userEmail, isGuest, isSubscribed, 
     setExpandedSection(expandedSection === id ? null : id);
   };
 
+  const verifyWithBiometrics = async () => {
+    const authenticated = await authenticateWithBiometrics('Verify your identity to delete account');
+    if (authenticated) {
+      await handleDeleteAccount();
+    }
+  };
+
   const handleDeleteAccount = async () => {
     if (!deletePassword) {
       Alert.alert('Error', 'Please enter your password to confirm');
@@ -84,7 +102,7 @@ export default function FAQScreen({ darkMode, userEmail, isGuest, isSubscribed, 
         },
         body: JSON.stringify({
           AuthFlow: 'USER_PASSWORD_AUTH',
-          ClientId: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID,
+          ClientId: CONFIG.COGNITO_CLIENT_ID,
           AuthParameters: {
             USERNAME: userEmail,
             PASSWORD: deletePassword
@@ -135,10 +153,10 @@ export default function FAQScreen({ darkMode, userEmail, isGuest, isSubscribed, 
       }
 
       // 4. Clear local storage
-      await SecureStore.deleteItemAsync('userToken');
-      await SecureStore.deleteItemAsync('userEmail');
-      await SecureStore.deleteItemAsync('profiles');
-      await SecureStore.deleteItemAsync('savedStories');
+      await Storage.deleteItemAsync('userToken');
+      await Storage.deleteItemAsync('userEmail');
+      await Storage.deleteItemAsync('profiles');
+      await Storage.deleteItemAsync('savedStories');
 
       const successMessage = isSubscribed
         ? 'Your account and all data have been permanently deleted. Please cancel your subscription in your Apple ID settings.'
@@ -258,6 +276,14 @@ export default function FAQScreen({ darkMode, userEmail, isGuest, isSubscribed, 
                   </Text>
                 </TouchableOpacity>
               </View>
+              {biometricAvailable && (
+                <TouchableOpacity 
+                  style={[globalStyles.linkButton, {marginTop: 10}]}
+                  onPress={verifyWithBiometrics}
+                >
+                  <Text style={globalStyles.linkButtonText}>🔐 Use Face ID / Touch ID</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </View>

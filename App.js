@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, Modal, AppState, ImageBackground } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, Modal, AppState, ImageBackground, KeyboardAvoidingView, Platform } from 'react-native';
+import * as Storage from './utils/storage';
 import * as Network from 'expo-network';
-import { useFonts, Chewy_400Regular } from '@expo-google-fonts/chewy';
+import { useFonts } from 'expo-font';
 import { Nunito_600SemiBold } from '@expo-google-fonts/nunito';
 import Markdown from 'react-native-markdown-display';
-import { clearBiometricCredentials } from './utils/biometricAuth';
 import AuthScreen from './AuthScreen';
 import ManageWordsScreen from './ManageWordsScreen';
 import AgeRatingScreen from './AgeRatingScreen';
@@ -23,22 +22,18 @@ import CustomSplashScreen from './components/SplashScreen';
 import ProfileScreen from './ProfileScreen';
 import StoryDisplayScreen from './components/StoryDisplayScreen';
 import VisualStoryCreator from './components/VisualStoryCreator';
-import { generateStoryAPI, LAMBDA_URL } from './config';
+import { generateStoryAPI, LAMBDA_URL, CONFIG } from './config';
 import { rateLimiter } from './utils/rateLimiter';
 import { validateInput } from './utils/security';
 import { SubscriptionService } from './services/SubscriptionService';
 import { AdService } from './services/AdService';
 import { createGlobalStyles } from './styles/GlobalStyles';
-
 export default function App() {
   let [fontsLoaded] = useFonts({
-    Chewy_400Regular,
     Nunito_600SemiBold,
   });
-
   const [darkMode, setDarkMode] = useState(true);
   const globalStyles = useMemo(() => createGlobalStyles(darkMode), [darkMode]);
-
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [accessToken, setAccessToken] = useState('');
@@ -48,7 +43,6 @@ export default function App() {
   const [profiles, setProfiles] = useState([]);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [showGenreDropdown, setShowGenreDropdown] = useState(false);
-  
   // Story screen state
   const [story, setStory] = useState('');
   const [genre, setGenre] = useState('random');
@@ -70,7 +64,6 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [initialAuthMode, setInitialAuthMode] = useState('welcome');
   const [isOffline, setIsOffline] = useState(false);
-
   // Helper to create user-specific SecureStore keys
   const getUserKey = (key) => {
     if (!userEmail || isGuestMode) return key; // Guest uses global keys
@@ -78,10 +71,8 @@ export default function App() {
     const sanitizedEmail = userEmail.replace(/[^a-zA-Z0-9._-]/g, '_');
     return `${sanitizedEmail}_${key}`;
   };
-
   const getGenresForAge = (ageRating) => {
     const baseGenres = [{ label: 'Random Genre', value: 'random' }];
-    
     if (ageRating === 'toddlers') {
       return baseGenres.concat([
         { label: 'Adventure', value: 'adventure' },
@@ -140,22 +131,17 @@ export default function App() {
       ]);
     }
   };
-
   const [userWords, setUserWords] = useState([]);
-
   // Get current age rating (from profile or global)
   const loadUserWords = async () => {
     if (!userEmail || isGuestMode || !currentProfile?.id) {
       return [];
     }
-    
-    
     try {
       if (!LAMBDA_URL) {
         setUserWords([]);
         return [];
       }
-
       const response = await fetch(LAMBDA_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -165,14 +151,11 @@ export default function App() {
           profileId: currentProfile.id
         })
       });
-
       if (!response.ok) {
         setUserWords([]);
         return [];
       }
-
       const result = await response.json();
-      
       if (result.success && result.words) {
         setUserWords(result.words);
         return result.words;
@@ -185,32 +168,25 @@ export default function App() {
       return [];
     }
   };
-
   const getCurrentAgeRating = () => {
     if (isGuestMode) return 'toddlers'; // Guest users fixed at toddler level
     return currentProfile ? currentProfile.ageRating : currentAgeRating;
   };
-
   const genres = getGenresForAge(getCurrentAgeRating());
-
   useEffect(() => {
     // Debug: Check if profiles exist at app start
-    SecureStore.getItemAsync(getUserKey('childProfiles')).then(profiles => {
+    Storage.getItemAsync(getUserKey('childProfiles')).then(profiles => {
     });
-    
     checkAuthState();
     loadAgeRating();
     loadProfiles();
-    
     // Initialize ad service
     AdService.initialize().catch(error => {
     });
-
     // Show splash screen for 2 seconds
     setTimeout(() => {
       setIsLoading(false);
     }, 2000);
-
     // Handle app state changes
     const handleAppStateChange = (nextAppState) => {
       if (nextAppState === 'active') {
@@ -220,11 +196,9 @@ export default function App() {
         }
       }
     };
-
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription?.remove();
   }, []);
-
   // Monitor network status
   useEffect(() => {
     const checkNetwork = async () => {
@@ -235,35 +209,34 @@ export default function App() {
         setIsOffline(false); // Assume online if check fails
       }
     };
-    
     checkNetwork();
     const interval = setInterval(checkNetwork, 5000); // Check every 5 seconds
-    
     return () => clearInterval(interval);
   }, []);
-
   // Reload profiles when subscription status or guest mode changes
   useEffect(() => {
     // Load from DynamoDB only once per session (on app start)
+    const isWebPlatform = Platform.OS === 'web';
     if (subscriptionStatus !== null && (userEmail || isGuestMode) && !profilesLoaded) {
-      loadProfiles();
+      // Allow web users to load profiles regardless of subscription status
+      if (isWebPlatform || subscriptionStatus.isSubscribed) {
+        loadProfiles();
+      }
     }
   }, [subscriptionStatus, isGuestMode, userEmail]);
-
   const loadAgeRating = async () => {
     try {
-      const rating = await SecureStore.getItemAsync('ageRating');
+      const rating = await Storage.getItemAsync('ageRating');
       if (rating) {
         setCurrentAgeRating(rating);
       }
     } catch (error) {
     }
   };
-
   const checkAuthState = async () => {
     try {
-      const token = await SecureStore.getItemAsync('accessToken');
-      const email = await SecureStore.getItemAsync('userEmail');
+      const token = await Storage.getItemAsync('accessToken');
+      const email = await Storage.getItemAsync('userEmail');
       if (token && email) {
         setIsAuthenticated(true);
         setUserEmail(email);
@@ -277,19 +250,16 @@ export default function App() {
       setIsAuthenticated(false);
     }
   };
-
   const checkSubscriptionStatus = async () => {
     if (!userEmail) {
       setSubscriptionStatus({ isSubscribed: false, subscriptionType: 'free' });
       return;
     }
-    
     // Guest users are always free users (should see ads)
     if (isGuestMode) {
       setSubscriptionStatus({ isSubscribed: false, subscriptionType: 'free' });
       return;
     }
-    
     try {
       const status = await SubscriptionService.checkSubscriptionStatus(userEmail);
       setSubscriptionStatus(status);
@@ -298,7 +268,6 @@ export default function App() {
       setSubscriptionStatus({ isSubscribed: false, subscriptionType: 'free' });
     }
   };
-
   const handleAuthSuccess = async (authResult, email, isGuest = false) => {
     try {
       // Clear previous user's data for privacy
@@ -306,11 +275,9 @@ export default function App() {
       setProfiles([]);
       setCurrentProfile(null);
       setCurrentScreen('stories');
-      
       // Show upgrade modal for new signups
       const isNewSignup = initialAuthMode === 'signup';
       setInitialAuthMode('welcome');
-      
       if (isGuest) {
         setIsGuestMode(true);
         setIsAuthenticated(true);
@@ -319,27 +286,22 @@ export default function App() {
         setSubscriptionStatus({ isSubscribed: false, subscriptionType: 'guest' });
         return;
       }
-      
       const token = authResult.AccessToken;
-      await SecureStore.setItemAsync('accessToken', token);
-      await SecureStore.setItemAsync('userEmail', email);
-      
+      await Storage.setItemAsync('accessToken', token);
+      await Storage.setItemAsync('userEmail', email);
       // Set user data first
       setUserEmail(email);
       setAccessToken(token);
       setIsGuestMode(false);
       setIsAuthenticated(true);
-      
       // Then immediately check subscription status
       const status = await SubscriptionService.checkSubscriptionStatus(email);
       setSubscriptionStatus(status);
-      
       loadLastStory();
       loadUserWords();
-      
+      syncStoriesOnLogin(); // Re-enabled - sync stories after login
       // Load user's profiles from DynamoDB after authentication
       loadProfiles();
-      
       // Show upgrade modal for new signups
       if (isNewSignup) {
         setTimeout(() => setShowUpgradeModal(true), 500);
@@ -348,16 +310,15 @@ export default function App() {
       // Silent fail for auth success
     }
   };
-
   const signOut = async () => {
     try {
       if (!isGuestMode) {
-        await SecureStore.deleteItemAsync('accessToken');
-        await SecureStore.deleteItemAsync('userEmail');
+        await Storage.deleteItemAsync('accessToken');
+        await Storage.deleteItemAsync('userEmail');
         await clearBiometricCredentials();
         // Don't delete profiles - they persist for when user logs back in
-        // await SecureStore.deleteItemAsync(getUserKey('childProfiles'));
-        // await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
+        // await Storage.deleteItemAsync(getUserKey('childProfiles'));
+        // await Storage.deleteItemAsync(getUserKey('currentProfile'));
       }
       setIsAuthenticated(false);
       setUserEmail('');
@@ -370,19 +331,16 @@ export default function App() {
       // Silent fail for auth check
     }
   };
-
   const generateStory = async () => {
     // Call the unified story creation function
     await createStory(character1, character2, keyword1, keyword2, keyword3);
   };
-
   const generateStoryInternal = async () => {
     // Rate limiting check
     if (!rateLimiter.canMakeRequest(userEmail, 5, 60000)) {
       Alert.alert('Error', 'Too many requests. Please wait a minute before generating another story.');
       return;
     }
-
     setIsGenerating(true);
     try {
       const storyData = {
@@ -401,16 +359,14 @@ export default function App() {
         ageRating: isGuestMode ? 'toddlers' : getCurrentAgeRating(),
         spellingWords: isGuestMode ? [] : (userWords.length > 0 ? userWords : [])
       };
-      
       const response = await generateStoryAPI(storyData);
       const storyText = response.story || response.body || JSON.parse(response.body || '{}').story;
-      
       if (storyText) {
         setStory(storyText);
         setCurrentScreen('story-display');
         // Only save shorter stories to avoid SecureStore size limits
         if (storyText.length < 1800) {
-          await SecureStore.setItemAsync('lastStory', storyText);
+          await Storage.setItemAsync('lastStory', storyText);
         }
       }
     } catch (error) {
@@ -418,17 +374,14 @@ export default function App() {
     }
     setIsGenerating(false);
   };
-
   const handleWatchAd = () => {
     setShowSubscriptionModal(false);
     setShowAdModal(true);
   };
-
   const handleAdComplete = () => {
     setShowAdModal(false);
     generateStoryWithData(character1, character2, keyword1, keyword2, keyword3);
   };
-
   const handleUpgradeSubscribe = async () => {
     setShowUpgradeModal(false);
     await checkSubscriptionStatus();
@@ -436,7 +389,6 @@ export default function App() {
       generateStoryInternal();
     }
   };
-
   const handleSubscribe = async () => {
     setShowSubscriptionModal(false);
     await checkSubscriptionStatus();
@@ -444,33 +396,137 @@ export default function App() {
       generateStoryWithData(character1, character2, keyword1, keyword2, keyword3);
     }
   };
-
   const handleVisualStoryGenerate = (genre, character1, character2, keyword1, keyword2 = '', keyword3 = '') => {
-    // Set the genre
+    // Set the genre for UI display
     setGenre(genre);
-    
-    // Call the unified story creation function directly
-    createStory(character1, character2, keyword1, keyword2, keyword3);
+    // Call the unified story creation function with the specific genre
+    createStoryWithGenre(genre, character1, character2, keyword1, keyword2, keyword3);
   };
-
+  const createStoryWithGenre = async (genreToUse, character1, character2, keyword1, keyword2 = '', keyword3 = '') => {
+    // Input validation
+    if (!character1.trim() || !character2.trim()) {
+      Alert.alert('Error', 'Please enter both character names');
+      return;
+    }
+    if (!rateLimiter.canMakeRequest(userEmail, 5, 60000)) {
+      Alert.alert('Error', 'Too many requests. Please wait a minute before generating another story.');
+      return;
+    }
+    setIsGenerating(true);
+    const timeoutPromise = new Promise((resolve, reject) => 
+      setTimeout(() => reject(new Error('Request timeout')), 30000)
+    );
+    const userWords = await loadUserWords();
+    setGenerationError(null);
+    setRetryData({
+      char1: character1,
+      char2: character2,
+      key1: keyword1,
+      key2: keyword2,
+      key3: keyword3
+    });
+    const storyMetadata = {
+      timestamp: Date.now(),
+      character1: character1.trim(),
+      character2: character2.trim(),
+      keyword1: keyword1.trim(),
+      keyword2: keyword2?.trim() || '',
+      keyword3: keyword3?.trim() || '',
+      genre: genreToUse, // Use the passed genre instead of state
+      ageRating: isGuestMode ? 'toddlers' : getCurrentAgeRating(),
+      profileId: currentProfile?.id || null,
+      profileName: currentProfile?.name || 'Global'
+    };
+    try {
+      const storyRequest = {
+        genre: genreToUse, // Use the passed genre
+        character1: character1.trim(),
+        character2: character2.trim(),
+        keyword1: keyword1.trim(),
+        keyword2: keyword2.trim(),
+        keyword3: keyword3.trim(),
+        userProfile: {
+          email: userEmail,
+          accessToken: accessToken
+        },
+        userEmail: userEmail,
+        ageRating: isGuestMode ? 'toddlers' : getCurrentAgeRating(),
+        profileId: currentProfile?.id || null,
+        profileName: currentProfile?.name || 'Global',
+        spellingWords: (() => {
+          if (isGuestMode) return [];
+          return userWords.length > 0 ? userWords : [];
+        })()
+      };
+      const response = await Promise.race([generateStoryAPI(storyRequest), timeoutPromise]);
+      const storyText = response.story || response.body || JSON.parse(response.body || '{}').story;
+      const storyId = response.story_id || JSON.parse(response.body || '{}').story_id;
+      const isGuardrailResponse = storyText?.includes('inappropriate content') ||
+                                 storyText?.includes('blocked by content filters') ||
+                                 storyText?.includes('try again with different words');
+      if (storyText && !isGuardrailResponse) {
+        // Save successful story with metadata
+        await saveStoryAutomatically({
+          ...storyMetadata,
+          content: storyText,
+          status: 'success',
+          storyId: storyId
+        });
+        setStory(storyText);
+        setCurrentScreen('story-display');
+        setRetryData(null);
+      } else if (isGuardrailResponse) {
+        // Save guardrail block as failed story
+        await saveStoryAutomatically({
+          ...storyMetadata,
+          content: 'Story generation was blocked by content filters. Please try different characters or keywords.',
+          status: 'failed',
+          error: 'Guardrail content filter block',
+          failureType: 'guardrail_block'
+        });
+        setGenerationError('Story generation was blocked by content filters. Please try different characters or keywords.');
+      } else {
+        throw new Error('No story content received');
+      }
+    } catch (error) {
+      const isTimeout = error.message === 'Request timeout';
+      const isGuardrailBlock = error.message?.includes('inappropriate') || 
+                              error.message?.includes('blocked') || 
+                              error.message?.includes('guardrail') || 
+                              error.message?.includes('content filter') ||
+                              storyText?.includes('inappropriate content') ||
+                              storyText?.includes('blocked by content filters');
+      const failureMessage = isTimeout 
+        ? 'Story generation timed out. Please check your internet connection and try again.'
+        : isGuardrailBlock
+        ? 'Story generation was blocked by content filters. Please try different characters or keywords.'
+        : 'Story generation failed due to a technical error.';
+      await saveStoryAutomatically({
+        ...storyMetadata,
+        content: failureMessage,
+        status: 'failed',
+        error: error.message,
+        failureType: isTimeout ? 'timeout' : isGuardrailBlock ? 'guardrail_block' : 'technical_error'
+      });
+      setGenerationError(failureMessage);
+    }
+    setIsGenerating(false);
+  };
   const createStory = async (character1, character2, keyword1, keyword2 = '', keyword3 = '') => {
     // Input validation
     if (!character1.trim() || !character2.trim()) {
       Alert.alert('Error', 'Please enter both character names');
       return;
     }
-
     // Validate inputs
     if (!validateInput(character1, 50)) {
       Alert.alert('Error', `Invalid character 1: "${character1}"`);
       return;
     }
-
     if (!validateInput(character2, 50)) {
       Alert.alert('Error', `Invalid character 2: "${character2}"`);
       return;
     }
-
     // Check subscription status (including guest users who should see ads)
     if (!subscriptionStatus || !subscriptionStatus.isSubscribed) {
       // Store the story data for after ad/subscription
@@ -482,30 +538,24 @@ export default function App() {
       setShowSubscriptionModal(true);
       return;
     }
-
     // Generate story directly for premium users
     await generateStoryWithData(character1, character2, keyword1, keyword2, keyword3);
   };
-
   const generateStoryWithData = async (char1, char2, key1, key2, key3) => {
     // Rate limiting check
     if (!rateLimiter.canMakeRequest(userEmail, 5, 60000)) {
       Alert.alert('Error', 'Too many requests. Please wait a minute before generating another story.');
       return;
     }
-
     setIsGenerating(true);
-    
     // Create timeout promise
     const timeoutPromise = new Promise((_, reject) => 
       setTimeout(() => reject(new Error('Request timeout')), 30000) // 30 second timeout
     );
-    
     // Load user words before generating story
     const currentUserWords = await loadUserWords();
     setGenerationError(null);
     setRetryData({ char1, char2, key1, key2, key3 });
-    
     const storyMetadata = {
       timestamp: Date.now(),
       character1: char1.trim(),
@@ -518,7 +568,6 @@ export default function App() {
       profileId: currentProfile?.id || null,
       profileName: currentProfile?.name || 'Global'
     };
-    
     try {
       const storyData = {
         genre,
@@ -543,33 +592,25 @@ export default function App() {
           return words;
         })()
       };
-      
-      console.log('Calling generateStoryAPI with data:', JSON.stringify(storyData).substring(0, 200));
-      
       // Race between API call and timeout
       const response = await Promise.race([
         generateStoryAPI(storyData),
         timeoutPromise
       ]);
-      
-      console.log('Response received:', typeof response, Object.keys(response || {}));
       const storyText = response.story || response.body || JSON.parse(response.body || '{}').story;
-      console.log('Story text extracted, length:', storyText?.length);
-      
+      const storyId = response.story_id || JSON.parse(response.body || '{}').story_id;
       // Check if the response contains a guardrail block message
       const isGuardrailResponse = storyText?.includes('inappropriate content') || 
                                  storyText?.includes('blocked by content filters') ||
                                  storyText?.includes('try again with different words');
-      
       if (storyText && !isGuardrailResponse) {
-        console.log('Story valid, saving and displaying');
         // Save successful story with metadata
         await saveStoryAutomatically({
           ...storyMetadata,
           content: storyText,
-          status: 'success'
+          status: 'success',
+          storyId: storyId
         });
-        
         setStory(storyText);
         setCurrentScreen('story-display');
         setRetryData(null);
@@ -582,16 +623,13 @@ export default function App() {
           error: 'Guardrail content filter block',
           failureType: 'guardrail_block'
         });
-        
         setGenerationError('Story generation was blocked by content filters. Please try different characters or keywords.');
       } else {
         throw new Error('No story content received');
       }
     } catch (error) {
-      
       // Check if it's a timeout error
       const isTimeout = error.message === 'Request timeout';
-      
       // Save failed attempt with metadata
       const isGuardrailBlock = error.message?.includes('inappropriate') || 
                               error.message?.includes('blocked') || 
@@ -599,13 +637,11 @@ export default function App() {
                               error.message?.includes('content filter') ||
                               storyText?.includes('inappropriate content') ||
                               storyText?.includes('blocked by content filters');
-      
       const failureMessage = isTimeout
         ? 'Story generation timed out. Please check your internet connection and try again.'
         : isGuardrailBlock
         ? 'Story generation was blocked by content filters. Please try different characters or keywords.'
         : 'Story generation failed due to a technical error.';
-      
       await saveStoryAutomatically({
         ...storyMetadata,
         content: failureMessage,
@@ -613,47 +649,51 @@ export default function App() {
         error: error.message,
         failureType: isTimeout ? 'timeout' : isGuardrailBlock ? 'guardrail_block' : 'technical_error'
       });
-      
       setGenerationError(failureMessage);
     }
     setIsGenerating(false);
   };
-
   const saveStoryAutomatically = async (storyData) => {
     try {
       // Add profile information to story
       const storyWithProfile = {
         ...storyData,
+        id: storyData.storyId || Date.now().toString(), // Use Lambda's storyId if available
+        timestamp: new Date().toISOString(),
         profileId: currentProfile?.id || null,
         profileName: currentProfile?.name || 'Global'
       };
-      
-      const existingStories = await SecureStore.getItemAsync('savedStories');
+      const existingStories = await Storage.getItemAsync('savedStories');
       const stories = existingStories ? JSON.parse(existingStories) : [];
-      
-      stories.unshift(storyWithProfile); // Add to beginning of array
-      
-      // Keep only last 50 stories to prevent storage issues
-      if (stories.length > 50) {
-        stories.splice(50);
+      // Count stories for current profile
+      const profileId = storyWithProfile.profileId;
+      const profileStories = stories.filter(s => s.profileId === profileId);
+      // If profile has 50 stories, remove the oldest one
+      if (profileStories.length >= 50) {
+        const oldestStory = profileStories[profileStories.length - 1];
+        const oldestIndex = stories.findIndex(s => s === oldestStory);
+        stories.splice(oldestIndex, 1);
+        Alert.alert(
+          'Story Saved',
+          `Your oldest story for ${storyWithProfile.profileName} was automatically deleted to make space. You can save up to 50 stories per profile.`
+        );
       }
-      
-      await SecureStore.setItemAsync('savedStories', JSON.stringify(stories));
+      stories.unshift(storyWithProfile); // Add to beginning of array
+      await Storage.setItemAsync('savedStories', JSON.stringify(stories));
+      // Note: DynamoDB save is handled by Lambda during story generation
+      // No need to save again here to avoid duplicates
     } catch (error) {
     }
   };
-
   const retryStoryGeneration = () => {
     if (retryData) {
       generateStoryWithData(retryData.char1, retryData.char2, retryData.key1, retryData.key2, retryData.key3);
     }
   };
-
   const clearError = () => {
     setGenerationError(null);
     setRetryData(null);
   };
-
   const handleAgeRatingChange = (newRating) => {
     if (currentProfile) {
       // Update the current profile's age rating
@@ -668,11 +708,9 @@ export default function App() {
       setCurrentAgeRating(newRating);
     }
   };
-
   const handleMenuWords = () => {
     setCurrentScreen('words');
   };
-  
   const handleMenuAge = () => {
     if (currentProfile) {
       // If there's an active profile, show age selection first
@@ -692,22 +730,18 @@ export default function App() {
       requestPassword(() => setCurrentScreen('age-rating'));
     }
   };
-
   const requestPasswordForAgeChange = (newAgeRating) => {
     requestPassword(() => updateCurrentProfileAge(newAgeRating));
   };
-
   const updateCurrentProfileAge = (newAgeRating) => {
     const updatedProfiles = profiles.map(p => 
       p.id === currentProfile.id ? { ...p, ageRating: newAgeRating } : p
     );
     const updatedCurrentProfile = { ...currentProfile, ageRating: newAgeRating };
-    
     saveProfiles(updatedProfiles);
     saveCurrentProfile(updatedCurrentProfile);
     Alert.alert('Success', 'Age rating updated successfully!');
   };
-  
   const handleMenuSavedStories = () => {
     setCurrentScreen('saved-stories');
   };
@@ -716,9 +750,7 @@ export default function App() {
   const handleMenuDarkMode = () => setDarkMode(!darkMode);
   const deleteProfileDataFromDynamoDB = async (profileId) => {
     if (!userEmail || isGuestMode) return true; // Skip for guests
-    
     try {
-      
       const response = await fetch(LAMBDA_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -728,37 +760,26 @@ export default function App() {
           profileId: profileId
         })
       });
-      
       if (!response.ok) {
         return false;
       }
-      
       const result = await response.json();
-      
       if (!result.success) {
         return false;
       }
-      
       return true;
     } catch (error) {
       return false;
     }
   };
-
   const saveProfilesToDynamoDB = async (profiles) => {
     if (!userEmail || isGuestMode) {
-      console.log('saveProfilesToDynamoDB: Skipped - no email or guest mode');
       return;
     }
-    
-    console.log('saveProfilesToDynamoDB: Starting save for', userEmail, 'with', profiles.length, 'profiles');
-    
     try {
       if (!LAMBDA_URL) {
-        console.log('saveProfilesToDynamoDB: No LAMBDA_URL');
         return;
       }
-
       const response = await fetch(LAMBDA_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -768,30 +789,18 @@ export default function App() {
           profiles: profiles
         })
       });
-      
-      console.log('saveProfilesToDynamoDB: Response status', response.status);
-      
       if (!response.ok) {
-        console.log('saveProfilesToDynamoDB: Response not OK');
         return;
       }
-      
       const result = await response.json();
-      console.log('saveProfilesToDynamoDB: Result', result);
-      
       if (!result.success) {
-        console.log('saveProfilesToDynamoDB: Save failed', result.error);
       } else {
-        console.log('saveProfilesToDynamoDB: Save successful');
       }
     } catch (error) {
-      console.log('saveProfilesToDynamoDB: Error', error);
     }
   };
-
   const loadProfilesFromDynamoDB = async () => {
     if (!userEmail || isGuestMode) return [];
-    
     try {
       const response = await fetch(LAMBDA_URL, {
         method: 'POST',
@@ -801,7 +810,6 @@ export default function App() {
           userEmail: userEmail
         })
       });
-      
       const result = await response.json();
       if (result.success && result.profiles) {
         return result.profiles;
@@ -813,19 +821,17 @@ export default function App() {
   };
   const loadProfiles = async () => {
     try {
-      
       // Wait for subscription status to be loaded before making decisions
       if (subscriptionStatus === null) {
         return;
       }
-      
-      // Only show profiles for premium users
-      if (isGuestMode || !userEmail || !subscriptionStatus.isSubscribed) {
+      // Only show profiles for premium users (temporary web override)
+      const isWebPlatform = Platform.OS === 'web';
+      if (isGuestMode || !userEmail || (!subscriptionStatus.isSubscribed && !isWebPlatform)) {
         setProfiles([]);
         setCurrentProfile(null);
         return;
       }
-      
       // Load from DynamoDB first (source of truth)
       try {
         const response = await fetch(LAMBDA_URL, {
@@ -836,17 +842,15 @@ export default function App() {
             userEmail: userEmail
           })
         });
-        
         if (response.ok) {
           const result = await response.json();
           if (result.success && result.profiles) {
             // DynamoDB is source of truth - save to SecureStore for fast access
-            await SecureStore.setItemAsync(getUserKey('childProfiles'), JSON.stringify(result.profiles));
+            await Storage.setItemAsync(getUserKey('childProfiles'), JSON.stringify(result.profiles));
             setProfiles(result.profiles);
             setProfilesLoaded(true);
-            
             // Load current profile from SecureStore
-            const savedCurrentProfile = await SecureStore.getItemAsync(getUserKey('currentProfile'));
+            const savedCurrentProfile = await Storage.getItemAsync(getUserKey('currentProfile'));
             if (savedCurrentProfile) {
               const currentProfileData = JSON.parse(savedCurrentProfile);
               const foundProfile = result.profiles.find(p => p.id === currentProfileData.id);
@@ -854,7 +858,7 @@ export default function App() {
                 setCurrentProfile(foundProfile);
               } else {
                 setCurrentProfile(null);
-                await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
+                await Storage.deleteItemAsync(getUserKey('currentProfile'));
               }
             }
             return;
@@ -863,16 +867,13 @@ export default function App() {
       } catch (dbError) {
         // DynamoDB failed, fall back to SecureStore
       }
-      
       // Fallback: Load from SecureStore if DynamoDB fails
-      const savedProfiles = await SecureStore.getItemAsync(getUserKey('childProfiles'));
-      const savedCurrentProfile = await SecureStore.getItemAsync(getUserKey('currentProfile'));
-      
+      const savedProfiles = await Storage.getItemAsync(getUserKey('childProfiles'));
+      const savedCurrentProfile = await Storage.getItemAsync(getUserKey('currentProfile'));
       if (savedProfiles) {
         const profilesData = JSON.parse(savedProfiles);
         setProfiles(profilesData);
         setProfilesLoaded(true);
-        
         if (savedCurrentProfile) {
           const currentProfileData = JSON.parse(savedCurrentProfile);
           const foundProfile = profilesData.find(p => p.id === currentProfileData.id);
@@ -880,7 +881,7 @@ export default function App() {
             setCurrentProfile(foundProfile);
           } else {
             setCurrentProfile(null);
-            await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
+            await Storage.deleteItemAsync(getUserKey('currentProfile'));
           }
         }
       } else {
@@ -889,12 +890,10 @@ export default function App() {
     } catch (error) {
     }
   };
-
   const deleteProfile = async (profileId) => {
     try {
       // First try to delete from DynamoDB
       const dynamoSuccess = await deleteProfileDataFromDynamoDB(profileId);
-      
       if (!dynamoSuccess) {
         Alert.alert(
           'Connection Error', 
@@ -903,71 +902,52 @@ export default function App() {
         );
         return false;
       }
-      
       // Delete from SecureStore
       const currentProfiles = profiles;
       const profileToDelete = currentProfiles.find(p => p.id === profileId);
-      
       if (profileToDelete) {
         // Remove saved stories for this profile from SecureStore
         try {
           const savedStoriesKey = `savedStories_${userEmail}_${profileId}`;
-          await SecureStore.deleteItemAsync(savedStoriesKey);
+          await Storage.deleteItemAsync(savedStoriesKey);
         } catch (error) {
         }
-        
         // Remove words for this profile from SecureStore  
         try {
           const wordsKey = `userWords_${userEmail}_${profileId}`;
-          await SecureStore.deleteItemAsync(wordsKey);
+          await Storage.deleteItemAsync(wordsKey);
         } catch (error) {
         }
       }
-      
       // Remove profile from profiles array
       const updatedProfiles = currentProfiles.filter(p => p.id !== profileId);
-      
       // If deleting current profile, clear it
       if (currentProfile?.id === profileId) {
         setCurrentProfile(null);
-        await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
+        await Storage.deleteItemAsync(getUserKey('currentProfile'));
       }
-      
       // Save updated profiles
       await saveProfiles(updatedProfiles);
-      
       return true;
     } catch (error) {
       Alert.alert('Error', 'Failed to delete profile. Please try again.');
       return false;
     }
   };
-
   const saveProfiles = async (newProfiles) => {
-    console.log('saveProfiles: Called with', newProfiles.length, 'profiles');
-    console.log('saveProfiles: isGuestMode=', isGuestMode, 'isSubscribed=', subscriptionStatus?.isSubscribed);
-    
     try {
       setProfiles(newProfiles);
-      
       // Only premium users save to SecureStore and DynamoDB
       if (isGuestMode || !subscriptionStatus?.isSubscribed) {
-        console.log('saveProfiles: Skipping save - not premium');
         return;
       }
-      
-      console.log('saveProfiles: Saving to SecureStore');
       // Save to SecureStore for immediate access with user-specific key
-      await SecureStore.setItemAsync(getUserKey('childProfiles'), JSON.stringify(newProfiles));
-      
-      console.log('saveProfiles: Calling saveProfilesToDynamoDB');
+      await Storage.setItemAsync(getUserKey('childProfiles'), JSON.stringify(newProfiles));
       // Save to DynamoDB for persistence across devices/sessions
       await saveProfilesToDynamoDB(newProfiles);
     } catch (error) {
-      console.log('saveProfiles: Error', error);
     }
   };
-
   const saveCurrentProfile = async (profile) => {
     try {
       // Only premium users can save profiles
@@ -975,27 +955,23 @@ export default function App() {
         setCurrentProfile(null);
         return;
       }
-      
       if (profile) {
-        await SecureStore.setItemAsync(getUserKey('currentProfile'), JSON.stringify(profile));
+        await Storage.setItemAsync(getUserKey('currentProfile'), JSON.stringify(profile));
       } else {
-        await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
+        await Storage.deleteItemAsync(getUserKey('currentProfile'));
       }
       setCurrentProfile(profile);
     } catch (error) {
     }
   };
-
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [password, setPassword] = useState('');
-
   const requestPassword = (action) => {
     setShowPasswordModal(true);
     setPassword('');
     // Store the action to execute after password verification
     window.pendingAction = action;
   };
-
   const verifyPassword = async () => {
     try {
       // Use Cognito to verify the current user's password
@@ -1007,14 +983,13 @@ export default function App() {
         },
         body: JSON.stringify({
           AuthFlow: 'USER_PASSWORD_AUTH',
-          ClientId: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID,
+          ClientId: CONFIG.COGNITO_CLIENT_ID,
           AuthParameters: {
             USERNAME: userEmail,
             PASSWORD: password
           }
         })
       });
-
       if (response.ok) {
         setShowPasswordModal(false);
         if (window.pendingAction) {
@@ -1031,18 +1006,16 @@ export default function App() {
       setPassword('');
     }
   };
-
   const handleMenuProfiles = () => {
     setCurrentScreen('profiles');
   };
-
   const handleMenuSignOut = async () => {
     try {
-      await SecureStore.deleteItemAsync('accessToken');
-      await SecureStore.deleteItemAsync('userEmail');
+      await Storage.deleteItemAsync('accessToken');
+      await Storage.deleteItemAsync('userEmail');
       // Don't delete profiles - they persist for when user logs back in
-      // await SecureStore.deleteItemAsync(getUserKey('childProfiles'));
-      // await SecureStore.deleteItemAsync(getUserKey('currentProfile'));
+      // await Storage.deleteItemAsync(getUserKey('childProfiles'));
+      // await Storage.deleteItemAsync(getUserKey('currentProfile'));
     } catch (error) {
     }
     setIsAuthenticated(false);
@@ -1056,17 +1029,14 @@ export default function App() {
     setCurrentScreen('stories');
     setInitialAuthMode('welcome');
   };
-
   const shouldShowReset = () => {
     return character1.trim() || character2.trim() || keyword1.trim() || genre !== 'random';
   };
-
   const handleGoHome = () => {
     setStory('');
     setGenre('random');
     setCurrentScreen('stories');
   };
-
   const resetStory = () => {
     setStory('');
     setCharacter1('');
@@ -1075,18 +1045,63 @@ export default function App() {
     setKeyword2('');
     setKeyword3('');
     setGenre('random');
-    SecureStore.deleteItemAsync('lastStory').catch(() => {});
+    Storage.deleteItemAsync('lastStory').catch(() => {});
   };
-
   const loadLastStory = async () => {
     try {
-      const lastStory = await SecureStore.getItemAsync('lastStory');
+      const lastStory = await Storage.getItemAsync('lastStory');
       if (lastStory) setStory(lastStory);
     } catch (error) {
       // No saved story found
     }
   };
-
+  const syncStoriesOnLogin = async () => {
+    if (!userEmail || isGuestMode) return;
+    try {
+      // Load stories from DynamoDB (same API as SavedStoriesScreen)
+      const response = await fetch(LAMBDA_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'get_user_stories',
+          userEmail: userEmail
+        })
+      });
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.stories) {
+          // Format cloud stories to match local format
+          const cloudStories = result.stories.map(story => ({
+            content: story.story_content,
+            timestamp: new Date(story.timestamp).getTime(),
+            genre: story.genre,
+            character1: story.character1,
+            character2: story.character2,
+            setting: story.setting,
+            words: story.words,
+            ageRating: story.age_rating,
+            profileId: story.profile_id,
+            profileName: story.profile_name,
+            status: story.status || 'success',
+            id: story.timestamp // Use timestamp as ID
+          }));
+          // Load local stories
+          const localStoriesData = await Storage.getItemAsync('savedStories');
+          const localStories = localStoriesData ? JSON.parse(localStoriesData) : [];
+          // Merge: keep cloud as source of truth, add any newer local stories
+          const cloudIds = new Set(cloudStories.map(s => s.id));
+          const newerLocalStories = localStories.filter(s => 
+            !cloudIds.has(s.id) && new Date(s.timestamp) > new Date(Math.max(...cloudStories.map(cs => new Date(cs.timestamp))))
+          );
+          const mergedStories = [...cloudStories, ...newerLocalStories]
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)); // Newest first
+          await Storage.setItemAsync('savedStories', JSON.stringify(mergedStories));
+        }
+      }
+    } catch (error) {
+      // Silent fail for story sync
+    }
+  };
   // Show splash screen while loading
   if (isLoading || !fontsLoaded) {
     return (
@@ -1095,7 +1110,6 @@ export default function App() {
       </ErrorBoundary>
     );
   }
-
   const handleGuestMode = () => {
     setIsGuestMode(true);
     setIsAuthenticated(true);
@@ -1106,7 +1120,6 @@ export default function App() {
     setCurrentProfile(null);
     setCurrentAgeRating('toddlers');
   };
-
   if (!isAuthenticated && !isGuestMode) {
     return (
       <ErrorBoundary>
@@ -1119,9 +1132,7 @@ export default function App() {
       </ErrorBoundary>
     );
   }
-
   const styles = getStyles(darkMode);
-
   // Show loading screen during story generation
   if (isGenerating) {
     const getLoadingMessage = (genre) => {
@@ -1147,10 +1158,8 @@ export default function App() {
       };
       return messages[genre] || '✨ Creating your magical story...';
     };
-    
     return <LoadingScreen message={getLoadingMessage(genre)} />;
   }
-
   // Show error screen if generation failed
   if (generationError) {
     return (
@@ -1161,7 +1170,6 @@ export default function App() {
       />
     );
   }
-
   if (currentScreen === 'story-display') {
     return (
       <ErrorBoundary>
@@ -1175,25 +1183,27 @@ export default function App() {
       </ErrorBoundary>
     );
   }
-
   if (currentScreen === 'visual') {
     return (
       <>
         <ErrorBoundary>
           <ImageBackground 
-            source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+            source={require("./assets/splash_logo.png")}
             style={globalStyles.backgroundImage}
             imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
+            resizeMode="cover"
           >
             <View style={globalStyles.screenContainer}>
-              <TouchableOpacity style={[globalStyles.homeButton, {alignSelf: 'flex-start', marginBottom: 10}]} onPress={() => {
-                setGenre('random');
-                setCurrentScreen('stories');
-              }}>
-                <Text style={globalStyles.homeButtonText}>🏠 Home</Text>
-              </TouchableOpacity>
-              
-              <Text style={globalStyles.heading}>Create Your Story</Text>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
+                <Text style={globalStyles.heading}>Create Your Story</Text>
+                <TouchableOpacity style={globalStyles.homeButton} onPress={() => {
+                  setGenre('random');
+                  setCurrentScreen('stories');
+                }}>
+                  <Text style={globalStyles.homeButtonText}>🏠 Home</Text>
+                </TouchableOpacity>
+              </View>
               <VisualStoryCreator 
                 onCreateStory={handleVisualStoryGenerate}
                 onBack={() => {
@@ -1206,7 +1216,6 @@ export default function App() {
             </View>
           </ImageBackground>
         </ErrorBoundary>
-        
         <UpgradeModal 
           visible={showUpgradeModal}
           onClose={() => setShowUpgradeModal(false)}
@@ -1221,7 +1230,6 @@ export default function App() {
           darkMode={darkMode}
           isGuestMode={isGuestMode}
         />
-        
         <SubscriptionModal 
           visible={showSubscriptionModal}
           onClose={() => setShowSubscriptionModal(false)}
@@ -1236,7 +1244,6 @@ export default function App() {
           darkMode={darkMode}
           isGuestMode={isGuestMode}
         />
-        
         <AdModal 
           visible={showAdModal}
           onAdComplete={handleAdComplete}
@@ -1246,24 +1253,24 @@ export default function App() {
       </>
     );
   }
-
   if (currentScreen === 'words') {
     return (
       <ErrorBoundary>
         <ImageBackground 
-          source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+          source={require("./assets/splash_logo.png")}
           style={globalStyles.backgroundImage}
           imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
         >
           <View style={globalStyles.screenContainer}>
         <View style={globalStyles.screenHeader}>
+          <Text style={globalStyles.heading}>Word Management</Text>
           <TouchableOpacity 
             style={styles.navBtn}
             onPress={handleGoHome}
           >
             <Text style={styles.btnText}>🏠 Home</Text>
           </TouchableOpacity>
-          <Text style={globalStyles.heading}>Word Management</Text>
           {!subscriptionStatus?.isSubscribed && (
             <TouchableOpacity 
               style={[styles.statusFlag, isGuestMode ? styles.guestFlag : styles.freeFlag]}
@@ -1281,20 +1288,21 @@ export default function App() {
           darkMode={darkMode}
           currentProfile={currentProfile}
           isOffline={isOffline}
+          onProfilesPress={() => setCurrentScreen('profiles')}
         />
       </View>
         </ImageBackground>
       </ErrorBoundary>
     );
   }
-
   if (currentScreen === 'age-rating') {
     return (
       <ErrorBoundary>
         <ImageBackground 
-          source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+          source={require("./assets/splash_logo.png")}
           style={globalStyles.backgroundImage}
           imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
         >
           <View style={globalStyles.screenContainer}>
           <View style={globalStyles.screenHeader}>
@@ -1318,29 +1326,30 @@ export default function App() {
       </ErrorBoundary>
     );
   }
-
   if (currentScreen === 'saved-stories') {
     return (
       <ErrorBoundary>
         <ImageBackground 
-          source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+          source={require("./assets/splash_logo.png")}
           style={globalStyles.backgroundImage}
           imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
         >
           <View style={globalStyles.screenContainer}>
           <View style={globalStyles.screenHeader}>
+            <Text style={globalStyles.heading}>Saved Stories</Text>
             <TouchableOpacity 
               style={styles.navBtn}
               onPress={handleGoHome}
             >
               <Text style={styles.btnText}>🏠 Home</Text>
             </TouchableOpacity>
-            <Text style={globalStyles.heading}>Saved Stories</Text>
           </View>
           <SavedStoriesScreen 
             darkMode={darkMode} 
             userEmail={userEmail} 
             currentProfile={currentProfile}
+            globalAgeRating={currentAgeRating}
             isOffline={isOffline}
             onReloadStory={(storyContent) => {
               setStory(storyContent);
@@ -1352,24 +1361,24 @@ export default function App() {
       </ErrorBoundary>
     );
   }
-
   if (currentScreen === 'support') {
     return (
       <ErrorBoundary>
         <ImageBackground 
-          source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+          source={require("./assets/splash_logo.png")}
           style={globalStyles.backgroundImage}
           imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
         >
           <View style={globalStyles.screenContainer}>
           <View style={globalStyles.screenHeader}>
+            <Text style={globalStyles.heading}>Support</Text>
             <TouchableOpacity 
               style={styles.navBtn}
               onPress={handleGoHome}
             >
               <Text style={styles.btnText}>🏠 Home</Text>
             </TouchableOpacity>
-            <Text style={globalStyles.heading}>Support</Text>
           </View>
           <SupportScreen darkMode={darkMode} userEmail={userEmail} />
         </View>
@@ -1377,24 +1386,24 @@ export default function App() {
       </ErrorBoundary>
     );
   }
-
   if (currentScreen === 'faq') {
     return (
       <ErrorBoundary>
         <ImageBackground 
-          source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+          source={require("./assets/splash_logo.png")}
           style={globalStyles.backgroundImage}
           imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
         >
           <View style={globalStyles.screenContainer}>
           <View style={globalStyles.screenHeader}>
+            <Text style={globalStyles.heading}>FAQ</Text>
             <TouchableOpacity 
               style={styles.navBtn}
               onPress={handleGoHome}
             >
               <Text style={styles.btnText}>🏠 Home</Text>
             </TouchableOpacity>
-            <Text style={globalStyles.heading}>FAQ</Text>
           </View>
           <FAQScreen 
             darkMode={darkMode} 
@@ -1413,14 +1422,14 @@ export default function App() {
       </ErrorBoundary>
     );
   }
-
   if (currentScreen === 'profiles') {
     return (
       <ErrorBoundary>
         <ImageBackground 
-          source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+          source={require("./assets/splash_logo.png")}
           style={globalStyles.backgroundImage}
           imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
         >
           <ProfileScreen 
             darkMode={darkMode}
@@ -1435,20 +1444,29 @@ export default function App() {
       </ErrorBoundary>
     );
   }
-
   return (
     <ErrorBoundary>
       <ImageBackground 
-        source={darkMode ? require('./assets/splash_logo.png') : require('./assets/splash-light.png')} 
+        source={require("./assets/splash_logo.png")}
         style={globalStyles.backgroundImage}
         imageStyle={globalStyles.backgroundImageStyle}
+            resizeMode="cover"
       >
         {isOffline && (
           <View style={globalStyles.offlineBanner}>
             <Text style={globalStyles.offlineBannerText}>📵 Offline Mode - Viewing cached data only</Text>
           </View>
         )}
-        <ScrollView style={globalStyles.screenContainer}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{flex: 1}}
+          keyboardVerticalOffset={0}
+        >
+        <ScrollView 
+          style={globalStyles.screenContainer}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
       <View style={styles.titleRow}>
         <View style={{flex: 1}} />
         <Text style={globalStyles.title}>SpellTales</Text>
@@ -1474,7 +1492,6 @@ export default function App() {
           />
         </View>
       </View>
-
       {isGuestMode ? (
         <View style={{alignItems: 'center', marginBottom: 10}}>
           <Text style={globalStyles.welcomeText}>Welcome, Guest!</Text>
@@ -1494,7 +1511,6 @@ export default function App() {
           Welcome, {currentProfile ? currentProfile.name : userEmail}!
         </Text>
       )}
-      
       <View style={[globalStyles.section, {paddingBottom: 10}]}>
         <TouchableOpacity 
           style={globalStyles.genreDropdown}
@@ -1505,7 +1521,6 @@ export default function App() {
           </Text>
           <Text style={globalStyles.dropdownArrow}>▼</Text>
         </TouchableOpacity>
-
         <Modal
           visible={showGenreDropdown}
           transparent={true}
@@ -1534,7 +1549,6 @@ export default function App() {
             </View>
           </TouchableOpacity>
         </Modal>
-
         <TextInput
           key={`character1-${darkMode}`}
           style={globalStyles.textInput}
@@ -1544,7 +1558,6 @@ export default function App() {
           placeholderTextColor={darkMode ? '#888' : '#666'}
           autoCapitalize="words"
         />
-
         <TextInput
           key={`character2-${darkMode}`}
           style={globalStyles.textInput}
@@ -1554,10 +1567,8 @@ export default function App() {
           placeholderTextColor={darkMode ? '#888' : '#666'}
           autoCapitalize="words"
         />
-
         <View style={styles.keywordSection}>
           <Text style={globalStyles.cardTitle}>Optional Story Elements</Text>
-          
           <TextInput
             key={`keyword1-${darkMode}`}
             style={globalStyles.textInput}
@@ -1567,7 +1578,6 @@ export default function App() {
             placeholderTextColor={darkMode ? '#888' : '#666'}
             autoCapitalize="words"
           />
-          
           <TextInput
             key={`keyword2-${darkMode}`}
             style={globalStyles.textInput}
@@ -1577,7 +1587,6 @@ export default function App() {
             placeholderTextColor={darkMode ? '#888' : '#666'}
             autoCapitalize="words"
           />
-          
           <TextInput
             key={`keyword3-${darkMode}`}
             style={globalStyles.textInput}
@@ -1588,7 +1597,6 @@ export default function App() {
             autoCapitalize="words"
           />
         </View>
-
         <View style={styles.buttonContainer}>
           <TouchableOpacity 
             style={[globalStyles.primaryButton, (isGenerating || isOffline) && globalStyles.buttonDisabled]}
@@ -1599,7 +1607,6 @@ export default function App() {
               {isGenerating ? '⏳ Making Your Story...' : '✨ Make My Story!'}
             </Text>
           </TouchableOpacity>
-
           <TouchableOpacity 
             style={[globalStyles.outlineButton, isOffline && globalStyles.buttonDisabled]}
             onPress={() => isOffline ? Alert.alert('Offline', 'Story creation requires internet connection') : setCurrentScreen('visual')}
@@ -1607,7 +1614,6 @@ export default function App() {
           >
             <Text style={globalStyles.outlineButtonText}>🎨 Help Me Create!</Text>
           </TouchableOpacity>
-
           {shouldShowReset() && (
             <TouchableOpacity 
               style={globalStyles.linkButton}
@@ -1618,14 +1624,12 @@ export default function App() {
           )}
         </View>
       </View>
-
       <AdModal 
         visible={showAdModal}
         onAdComplete={handleAdComplete}
         onClose={() => setShowAdModal(false)}
         darkMode={darkMode}
       />
-      
       <UpgradeModal 
         visible={showUpgradeModal}
         onClose={() => setShowUpgradeModal(false)}
@@ -1640,7 +1644,6 @@ export default function App() {
         darkMode={darkMode}
         isGuestMode={isGuestMode}
       />
-      
       <SubscriptionModal 
         visible={showSubscriptionModal}
         onClose={() => setShowSubscriptionModal(false)}
@@ -1655,7 +1658,6 @@ export default function App() {
         darkMode={darkMode}
         isGuestMode={isGuestMode}
       />
-
       <Modal
         visible={showPasswordModal}
         transparent={true}
@@ -1691,20 +1693,18 @@ export default function App() {
           </View>
         </View>
       </Modal>
-        
-        {/* Banner Ad Placeholder for Free/Guest Users */}
+        {/* Banner Ad - Same layout as story page */}
         {!subscriptionStatus?.isSubscribed && (
           <View style={styles.bannerAdPlaceholder}>
             <Text style={styles.bannerAdText}>📱 Ad Space - AdMob Banner</Text>
           </View>
         )}
-        
         </ScrollView>
+        </KeyboardAvoidingView>
       </ImageBackground>
     </ErrorBoundary>
   );
 }
-
 const getMarkdownStyles = (darkMode, fontSize = 16) => ({
   body: {
     color: darkMode ? '#fff' : '#333',
@@ -1736,7 +1736,6 @@ const getMarkdownStyles = (darkMode, fontSize = 16) => ({
     fontStyle: 'italic',
   },
 });
-
 const getStyles = (darkMode) => StyleSheet.create({
   backgroundImage: {
     flex: 1,

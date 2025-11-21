@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Alert, ScrollView, StyleSheet, Modal, TextInput } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import { View, Text, TouchableOpacity, Alert, ScrollView, StyleSheet, Modal, TextInput, Platform } from 'react-native';
+import * as Storage from './utils/storage';
 import Markdown from 'react-native-markdown-display';
+import { CONFIG } from './config';
 import { createGlobalStyles } from './styles/GlobalStyles';
-
-export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile, onReloadStory, isOffline }) {
+import { checkBiometricSupport } from './utils/biometricAuth';
+import { confirmDialog } from './utils/confirmDialog';
+export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile, globalAgeRating, onReloadStory, isOffline }) {
   const globalStyles = createGlobalStyles(darkMode);
   const [savedStories, setSavedStories] = useState([]);
   const [allStories, setAllStories] = useState([]);
@@ -13,21 +15,49 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [password, setPassword] = useState('');
   const [pendingAction, setPendingAction] = useState(null);
-
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [skipNextLoad, setSkipNextLoad] = useState(false);
+  // Age rating hierarchy - higher numbers can access lower numbers
+  const ageRatingHierarchy = {
+    'toddlers': 1,
+    'children': 2,
+    'young-teens': 3,
+    'teens': 4
+  };
+  const canAccessStory = (storyAgeRating, profileAgeRating) => {
+    const storyLevel = ageRatingHierarchy[storyAgeRating] || 1;
+    const profileLevel = ageRatingHierarchy[profileAgeRating] || 1;
+    return profileLevel >= storyLevel;
+  };
   useEffect(() => {
     loadSavedStories();
+    checkBiometrics();
   }, []);
-
   useEffect(() => {
+    if (skipNextLoad) {
+      setSkipNextLoad(false);
+      return;
+    }
     loadSavedStories();
   }, [currentProfile]);
-
+  const checkBiometrics = async () => {
+    const available = await checkBiometricSupport();
+    setBiometricAvailable(available);
+  };
   const requestPassword = (action) => {
     setPendingAction(() => action);
     setShowPasswordModal(true);
     setPassword('');
   };
-
+  const verifyWithBiometrics = async () => {
+    const authenticated = await authenticateWithBiometrics('Verify your identity');
+    if (authenticated && pendingAction) {
+      setShowPasswordModal(false);
+      pendingAction();
+      setPendingAction(null);
+      setPassword('');
+    }
+  };
   const verifyPassword = async () => {
     try {
       const response = await fetch(`https://cognito-idp.eu-west-2.amazonaws.com/`, {
@@ -38,14 +68,13 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
         },
         body: JSON.stringify({
           AuthFlow: 'USER_PASSWORD_AUTH',
-          ClientId: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID,
+          ClientId: CONFIG.COGNITO_CLIENT_ID,
           AuthParameters: {
             USERNAME: userEmail,
             PASSWORD: password
           }
         })
       });
-
       if (response.ok) {
         setShowPasswordModal(false);
         if (pendingAction) {
@@ -62,173 +91,161 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
       setPassword('');
     }
   };
-
   const loadSavedStories = async () => {
-    console.log('loadSavedStories: Starting...');
     try {
-      // Try to load from cloud first
-      const response = await fetch(`${process.env.EXPO_PUBLIC_LAMBDA_URL}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'get_user_stories',
-          userEmail: userEmail
-        })
-      });
-
-      console.log('loadSavedStories: Response status', response.status, 'ok:', response.ok);
+      // Load local stories first (offline-first approach)
+      const localStoriesJson = await Storage.getItemAsync('savedStories');
+      let localStories = localStoriesJson ? JSON.parse(localStoriesJson) : [];
       
-      if (response.ok) {
-        const result = await response.json();
-        console.log('loadSavedStories: Result success', result.success, 'Stories count', result.stories?.length || 0);
-        
-        if (result.success) {
-          const formattedStories = (result.stories || []).map(story => ({
-            content: story.story_content,
-            timestamp: new Date(story.timestamp).getTime(),
-            genre: story.genre,
-            character1: story.character1,
-            character2: story.character2,
-            keyword1: story.keyword1,
-            ageRating: story.age_rating,
-            storyId: story.story_id,
-            status: story.status || 'success',
-            profileId: story.profile_id || null,
-            profileName: story.profile_name || 'Global'
-          }));
-          
-          console.log('loadSavedStories: Loaded from DynamoDB, count:', formattedStories.length);
-          setAllStories(formattedStories);
-          
-          
-          // Filter stories by current profile
-          if (currentProfile) {
-            // If a profile is selected, only show stories for that profile
-            const filtered = formattedStories.filter(story => story.profileId === currentProfile.id);
-            setSavedStories(filtered);
-          } else {
-            // If no profile selected, show all stories
-            const filtered = profileFilter 
-              ? formattedStories.filter(story => story.profileId === profileFilter)
-              : formattedStories;
-            setSavedStories(filtered);
+      // Migration: Clear old stories with mismatched ID format
+      const hasOldFormat = localStories.some(s => s.id && !s.id.startsWith('story_'));
+      if (hasOldFormat) {
+        localStories = [];
+        await Storage.setItemAsync('savedStories', JSON.stringify([]));
+      }
+      
+      // Set local stories immediately (offline-first)
+      setAllStories(localStories);
+      // Filter for current profile from local data
+      if (currentProfile) {
+        const filtered = localStories.filter(story => story.profileId === currentProfile.id);
+        setSavedStories(filtered);
+      } else {
+        const filtered = profileFilter 
+          ? localStories.filter(story => story.profileId === profileFilter)
+          : localStories;
+        setSavedStories(filtered);
+      }
+      // Try to sync with cloud in background (if online) - but don't override local deletions
+      if (!isOffline && userEmail) {
+        try {
+          const response = await fetch(`${CONFIG.API_BASE_URL}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'get_user_stories',
+              userEmail: userEmail
+            })
+          });
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success) {
+              const cloudStories = (result.stories || []).map(story => ({
+                content: story.story_content,
+                timestamp: new Date(story.timestamp).getTime(),
+                genre: story.genre,
+                character1: story.character1,
+                character2: story.character2,
+                keyword1: story.keyword1,
+                ageRating: story.age_rating,
+                id: story.story_id, // Use id consistently
+                status: story.status || 'success',
+                profileId: story.profile_id || null,
+                profileName: story.profile_name || 'Global'
+              }));
+              // Only add new stories from cloud that aren't in local storage
+              const localStoryIds = new Set(localStories.map(s => s.id));
+              const newCloudStories = cloudStories.filter(s => !localStoryIds.has(s.id));
+              if (newCloudStories.length > 0) {
+                const mergedStories = [...localStories, ...newCloudStories]
+                  .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                setAllStories(mergedStories);
+                await Storage.setItemAsync('savedStories', JSON.stringify(mergedStories));
+                // Re-filter for current profile
+                if (currentProfile) {
+                  const filtered = mergedStories.filter(story => story.profileId === currentProfile.id);
+                  setSavedStories(filtered);
+                } else {
+                  const filtered = profileFilter 
+                    ? mergedStories.filter(story => story.profileId === profileFilter)
+                    : mergedStories;
+                  setSavedStories(filtered);
+                }
+              }
+            }
           }
-          return;
+        } catch (error) {
+          // Silent fail for background sync
         }
-      } else {
-        const errorText = await response.text();
-        console.log('loadSavedStories: Response error', response.status, errorText);
       }
     } catch (error) {
-      console.log('loadSavedStories: Error from DynamoDB', error.message);
-    }
-
-    // Fallback to SecureStore only if DynamoDB query failed
-    console.log('loadSavedStories: Falling back to SecureStore');
-    try {
-      const stories = await SecureStore.getItemAsync('savedStories');
-      if (stories) {
-        const allStoriesData = JSON.parse(stories);
-        console.log('loadSavedStories: Loaded from SecureStore, count:', allStoriesData.length);
-        setAllStories(allStoriesData);
-        
-        // Filter stories by current profile
-        if (currentProfile) {
-          const filtered = allStoriesData.filter(story => story.profileId === currentProfile.id);
-          setSavedStories(filtered);
-        } else {
-          const filtered = profileFilter 
-            ? allStoriesData.filter(story => story.profileId === profileFilter)
-            : allStoriesData;
-          setSavedStories(filtered);
-        }
-      } else {
-        setSavedStories([]);
-      }
-    } catch (error) {
-      console.log('loadSavedStories: Error from SecureStore', error);
+      setSavedStories([]);
     }
   };
-
   const deleteStoryAction = async (index) => {
     try {
       const story = savedStories[index];
-      
-      // Try to delete from cloud first
-      if (story.storyId) {
+      const cloudId = story.storyId || story.id;
+      // Delete from local storage first (offline-first approach)
+      const updatedStories = savedStories.filter((_, i) => i !== index);
+      setSavedStories(updatedStories);
+      await Storage.setItemAsync('savedStories', JSON.stringify(updatedStories));
+      setSkipNextLoad(true);
+      // Try to delete from cloud
+      if (cloudId && userEmail && !isOffline) {
         try {
-          await fetch(`${process.env.EXPO_PUBLIC_LAMBDA_URL}`, {
+          const response = await fetch(`${CONFIG.API_BASE_URL}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               action: 'delete_story',
-              storyId: story.storyId,
+              storyId: cloudId,
               userEmail: userEmail
             })
           });
+          if (response.ok) {
+            const result = await response.json();
+            if (!result.success) {
+            }
+          }
         } catch (cloudError) {
         }
       }
-
-      // Update local state and SecureStore
-      const updatedStories = savedStories.filter((_, i) => i !== index);
-      setSavedStories(updatedStories);
-      await SecureStore.setItemAsync('savedStories', JSON.stringify(updatedStories));
       Alert.alert('Success', 'Story deleted successfully');
     } catch (error) {
       Alert.alert('Error', 'Failed to delete story');
     }
   };
-
-  const deleteStory = (index) => {
+  const deleteStory = async (index) => {
     if (isOffline) {
       Alert.alert('Offline', 'Story deletion requires internet connection');
       return;
     }
-    Alert.alert(
-      'Delete Story',
-      'Are you sure you want to delete this story?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Delete', 
-          style: 'destructive',
-          onPress: () => requestPassword(() => deleteStoryAction(index))
-        }
-      ]
-    );
-  };
-
-  const deleteAllStoriesAction = async () => {
-    try {
-      // Delete all stories from cloud
-      for (const story of savedStories) {
-        if (story.storyId) {
-          try {
-            await fetch(`${process.env.EXPO_PUBLIC_LAMBDA_URL}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                action: 'delete_story',
-                storyId: story.storyId,
-                userEmail: userEmail
-              })
-            });
-          } catch (cloudError) {
-          }
-        }
-      }
-
-      // Clear local storage
-      setSavedStories([]);
-      await SecureStore.setItemAsync('savedStories', JSON.stringify([]));
-      Alert.alert('Success', 'All stories deleted successfully');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to delete all stories');
+    const confirmed = await confirmDialog('Are you sure you want to delete this story?');
+    if (confirmed) {
+      requestPassword(() => deleteStoryAction(index));
     }
   };
-
-  const deleteAllStories = () => {
+  const deleteAllStoriesAction = async () => {
+    try {
+      // Clear local storage first
+      await Storage.setItemAsync('savedStories', JSON.stringify([]));
+      setSavedStories([]);
+      // Clear from cloud
+      if (userEmail) {
+        try {
+          const response = await fetch(`${CONFIG.API_BASE_URL}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'clear_user_stories',
+              userEmail: userEmail
+            })
+          });
+          const result = await response.json();
+          if (!result.success) {
+            Alert.alert('Warning', 'Local stories cleared but cloud sync may have failed');
+          }
+        } catch (cloudError) {
+          Alert.alert('Warning', 'Local stories cleared but cloud sync failed');
+        }
+      }
+      Alert.alert('Success', 'All stories deleted successfully');
+    } catch (error) {
+      Alert.alert('Error', `Failed to delete all stories: ${error.message}`);
+    }
+  };
+  const deleteAllStories = async () => {
     if (isOffline) {
       Alert.alert('Offline', 'Story deletion requires internet connection');
       return;
@@ -237,43 +254,28 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
       Alert.alert('No Stories', 'There are no stories to delete');
       return;
     }
-    
-    Alert.alert(
-      'Delete All Stories',
-      `Are you sure you want to delete all ${savedStories.length} stories? This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Delete All', 
-          style: 'destructive',
-          onPress: () => requestPassword(deleteAllStoriesAction)
-        }
-      ]
-    );
+    const confirmed = await confirmDialog(`Are you sure you want to delete all ${savedStories.length} stories? This cannot be undone.`);
+    if (confirmed) {
+      requestPassword(deleteAllStoriesAction);
+    }
   };
-
   const canReloadStory = (story) => {
-    if (!currentProfile) return true;
-    const ageOrder = ['children', 'teens', 'young_teens', 'adults'];
-    const currentIndex = ageOrder.indexOf(currentProfile.ageRating);
-    const storyIndex = ageOrder.indexOf(story.ageRating);
-    return storyIndex <= currentIndex;
+    // Determine which age rating to use
+    const ageRatingToCheck = currentProfile ? currentProfile.ageRating : globalAgeRating;
+    // Use the same age rating hierarchy as defined above
+    return canAccessStory(story.ageRating, ageRatingToCheck);
   };
-
   const reloadStory = (story) => {
     if (onReloadStory) {
       onReloadStory(story.content);
     }
   };
-
   const formatDate = (timestamp) => {
     return new Date(timestamp).toLocaleDateString() + ' ' + new Date(timestamp).toLocaleTimeString();
   };
-
   const truncateStory = (story, maxLength = 150) => {
     return story.length > maxLength ? story.substring(0, maxLength) + '...' : story;
   };
-
   const getCharacterEmoji = (character) => {
     const emojiMap = {
       'cat': '🐱', 'dog': '🐶', 'princess': '👸', 'dragon': '🐉', 'astronaut': '👨‍🚀',
@@ -282,22 +284,18 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
     };
     return emojiMap[character.toLowerCase()] || '👤';
   };
-
   const getReadingTime = (content) => {
     const words = content.split(' ').length;
     const minutes = Math.ceil(words / 200); // Average reading speed
     return `${minutes} min read`;
   };
-
   const getStatusIcon = (story) => {
     if (story.status === 'failed') {
       return story.failureType === 'guardrail_block' ? '🚫' : '❌';
     }
     return '✅';
   };
-
   const styles = getStyles(darkMode);
-
   return (
     <ScrollView style={{flex: 1}}>
       <Text style={globalStyles.subtitle}>
@@ -305,7 +303,6 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
           ? `Stories for: ${currentProfile.name}` 
           : 'All Stories (All Profiles)'}
       </Text>
-      
       {!currentProfile && allStories.length > 0 && (
         <View style={globalStyles.filterContainer}>
           <Text style={globalStyles.filterLabel}>Filter by profile:</Text>
@@ -344,7 +341,6 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
             </TouchableOpacity>
         </View>
       )}
-
       {savedStories.length === 0 ? (
         <View style={globalStyles.section}>
           <Text style={globalStyles.cardTitle}>No saved stories yet</Text>
@@ -370,7 +366,6 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
                   </View>
                   <Text style={styles.statusIcon}>{getStatusIcon(story)}</Text>
                 </View>
-
                 <View style={styles.cardContent}>
                   <View style={styles.tagsRow}>
                     <View style={styles.genreTag}>
@@ -389,7 +384,6 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
                     )}
                   </View>
                 </View>
-
                 {selectedStory === index && (
                   <View style={styles.expandedContent}>
                     <Markdown style={{
@@ -404,7 +398,6 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
                       <Text style={globalStyles.bodyText}>{formatDate(story.timestamp)}</Text>
                       <Text style={globalStyles.bodyText}>{getReadingTime(story.content)}</Text>
                     </View>
-                    
                     <View style={styles.actionButtons}>
                       {canReloadStory(story) ? (
                         <TouchableOpacity
@@ -418,7 +411,6 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
                           <Text style={globalStyles.buttonText}>🔒 Age Restricted</Text>
                         </View>
                       )}
-                      
                       <TouchableOpacity
                         style={globalStyles.dangerButton}
                         onPress={() => deleteStory(index)}
@@ -433,7 +425,6 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
           </View>
         </View>
       )}
-
       {savedStories.length > 0 && (
         <TouchableOpacity 
           style={globalStyles.dangerButton}
@@ -442,7 +433,6 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
           <Text style={globalStyles.dangerButtonText}>🗑️ Delete All Stories</Text>
         </TouchableOpacity>
       )}
-
       <Modal
         visible={showPasswordModal}
         transparent={true}
@@ -475,13 +465,20 @@ export default function SavedStoriesScreen({ darkMode, userEmail, currentProfile
                 <Text style={globalStyles.buttonText}>Confirm</Text>
               </TouchableOpacity>
             </View>
+            {biometricAvailable && (
+              <TouchableOpacity 
+                style={[globalStyles.linkButton, {marginTop: 10}]}
+                onPress={verifyWithBiometrics}
+              >
+                <Text style={globalStyles.linkButtonText}>🔐 Use Face ID / Touch ID</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </Modal>
     </ScrollView>
   );
 }
-
 const getStyles = (darkMode) => StyleSheet.create({
   // Only component-specific layout styles
   cardsContainer: {

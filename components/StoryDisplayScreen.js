@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Share, Alert } from 'react-native';
 import Markdown from 'react-native-markdown-display';
+import BannerAdComponent from './BannerAdComponent';
 
 export default function StoryDisplayScreen({ 
   story, 
@@ -96,6 +97,13 @@ export default function StoryDisplayScreen({
           {story}
         </Markdown>
       </ScrollView>
+
+      {/* Bottom Banner Ad - Same layout as top */}
+      {!isSubscribed && (
+        <View style={styles.bannerAdPlaceholder}>
+          <Text style={styles.bannerAdText}>📱 Ad Space - AdMob Banner</Text>
+        </View>
+      )}
     </View>
   );
 }

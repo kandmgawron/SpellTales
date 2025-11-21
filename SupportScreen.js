@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Alert, Linking } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import * as Storage from './utils/storage';
 import { createGlobalStyles } from './styles/GlobalStyles';
 
 export default function SupportScreen({ darkMode, userEmail }) {
@@ -19,7 +19,7 @@ export default function SupportScreen({ darkMode, userEmail }) {
 
   const loadSavedStories = async () => {
     try {
-      const stories = await SecureStore.getItemAsync('savedStories');
+      const stories = await Storage.getItemAsync('savedStories');
       if (stories) {
         const parsedStories = JSON.parse(stories);
         setSavedStories(parsedStories.slice(0, 10)); // Show last 10 stories

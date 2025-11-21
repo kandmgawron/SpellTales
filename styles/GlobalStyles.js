@@ -45,12 +45,14 @@ export const createGlobalStyles = (darkMode) => {
     // Layout
     container: {
       flex: 1,
+      backgroundColor: theme.surface,
       padding: 20,
+      borderRadius: 12,
     },
     
     screenContainer: {
       flex: 1,
-      backgroundColor: darkMode ? 'rgba(0,0,0,0.7)' : 'transparent',
+      backgroundColor: 'transparent',
       padding: 20,
       paddingTop: 60,
     },
@@ -99,18 +101,20 @@ export const createGlobalStyles = (darkMode) => {
     title: {
       fontSize: Typography.titleSize,
       fontFamily: Typography.titleFont,
-      color: theme.text,
+      color: '#ffffff',
       textAlign: 'center',
       marginBottom: 10,
+      textShadow: '-1px -1px 1px #000',
     },
     
     heading: {
       fontSize: Typography.headingSize,
       fontFamily: Typography.headingFont,
-      color: theme.text,
+      color: '#ffffff',
       marginBottom: 15,
       fontWeight: 'bold',
-      textAlign: 'right',
+      textAlign: 'left',
+      textShadow: '-1px -1px 1px #000',
     },
     
     cardTitle: {
@@ -129,7 +133,7 @@ export const createGlobalStyles = (darkMode) => {
     
     welcomeText: {
       fontSize: Typography.bodySize,
-      color: theme.text,
+      color: '#ffffff',
       textAlign: 'center',
       marginBottom: 10,
       lineHeight: 24,
@@ -316,7 +320,12 @@ export const createGlobalStyles = (darkMode) => {
     },
     
     backgroundImageStyle: {
-      opacity: darkMode ? 0.3 : 0.7,
+      opacity: 0.6,
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      bottom: 0,
+      right: 0,
     },
     
     scrollContainer: {
@@ -367,10 +376,7 @@ export const createGlobalStyles = (darkMode) => {
       borderRadius: 10,
       padding: 10,
       minWidth: 200,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 3.84,
+      boxShadow: '0px 2px 3.84px rgba(0, 0, 0, 0.25)',
       elevation: 5,
     },
     
@@ -422,10 +428,7 @@ export const createGlobalStyles = (darkMode) => {
       borderRadius: 10,
       padding: 10,
       minWidth: 200,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 3.84,
+      boxShadow: '0px 2px 3.84px rgba(0, 0, 0, 0.25)',
       elevation: 5,
     },
     
@@ -454,7 +457,7 @@ export const createGlobalStyles = (darkMode) => {
       justifyContent: 'center',
       alignItems: 'center',
       padding: 20,
-      paddingTop: 100,
+      paddingTop: typeof window !== 'undefined' && window.innerHeight < 700 ? 40 : 100,
     },
     
     welcomeContainer: {
@@ -580,19 +583,18 @@ export const createGlobalStyles = (darkMode) => {
       height: '100%',
       justifyContent: 'center',
       alignItems: 'center',
-      backgroundColor: '#F0F4F8',
+      backgroundColor: 'transparent',
       zIndex: 9999,
     },
     
     loadingBackgroundImage: {
       opacity: 0.1,
-      resizeMode: 'cover',
     },
     
     loadingMessage: {
       marginTop: 20,
       fontSize: 18,
-      color: '#4A5568',
+      color: '#ffffff',
       textAlign: 'center',
       fontFamily: 'System',
     },
@@ -622,9 +624,10 @@ export const createGlobalStyles = (darkMode) => {
     
     subtitle: {
       fontSize: 16,
-      color: theme.textSecondary,
+      color: '#ffffff',
       marginBottom: 10,
       lineHeight: 24,
+      textShadow: '-1px -1px 1px #000',
     },
     
     description: {
