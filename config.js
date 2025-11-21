@@ -1,7 +1,7 @@
-// Environment configuration with fallbacks for web builds
+// Environment configuration with fallbacks for mobile builds
 export const CONFIG = {
-  LAMBDA_URL: process.env.EXPO_PUBLIC_LAMBDA_URL || 'https://yqq7rzeg6e.execute-api.eu-west-2.amazonaws.com/prod/generate-story',
-  API_BASE_URL: process.env.EXPO_PUBLIC_API_BASE_URL || 'https://rnbcv6rsb7.execute-api.eu-west-2.amazonaws.com/prod',
+  LAMBDA_URL: process.env.EXPO_PUBLIC_LAMBDA_URL || 'https://ndtvckiakm24uoxqj3dbhx3ocm0ynfpa.lambda-url.eu-west-2.on.aws',
+  API_BASE_URL: process.env.EXPO_PUBLIC_API_BASE_URL || 'https://ndtvckiakm24uoxqj3dbhx3ocm0ynfpa.lambda-url.eu-west-2.on.aws',
   COGNITO_CLIENT_ID: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID || '4o3q1jj15uki6u7lsf05dv3sgf',
   COGNITO_REGION: process.env.EXPO_PUBLIC_COGNITO_REGION || 'eu-west-2'
 };

@@ -11,12 +11,10 @@ import {
   getBiometricCredentials, 
   isBiometricEnabled 
 } from './utils/biometricAuth';
-
 export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true, initialMode = 'welcome' }) {
   let [fontsLoaded] = useFonts({
     Nunito_600SemiBold,
   });
-
   const globalStyles = createGlobalStyles(darkMode);
   const [mode, setMode] = useState(initialMode);
   const [email, setEmail] = useState('');
@@ -26,24 +24,20 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
   const [loading, setLoading] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
-
   useEffect(() => {
     checkBiometrics();
   }, []);
-
   const checkBiometrics = async () => {
     const available = await checkBiometricSupport();
     const enabled = await isBiometricEnabled();
     setBiometricAvailable(available);
     setBiometricEnabled(enabled);
   };
-
   const handleSignIn = async () => {
     if (!email || !password) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
-    
     setLoading(true);
     try {
       const response = await fetch('https://rnbcv6rsb7.execute-api.eu-west-2.amazonaws.com/prod/auth', {
@@ -57,9 +51,7 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
           password: password
         })
       });
-
       const result = await response.json();
-      
       if (result.success) {
         // Offer to save credentials for biometric login (mobile only)
         if (Platform.OS !== 'web' && biometricAvailable && !biometricEnabled) {
@@ -93,7 +85,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
               { 
                 text: 'Verify Now', 
                 onPress: () => {
-                  console.log('Switching to verify mode for email:', email);
                   setMode('verify');
                 }
               }
@@ -109,12 +100,10 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
       setLoading(false);
     }
   };
-
   const handleBiometricLogin = async () => {
     setLoading(true);
     try {
       const authenticated = await authenticateWithBiometrics('Sign in to SpellTales');
-      
       if (authenticated) {
         const credentials = await getBiometricCredentials();
         if (credentials) {
@@ -133,34 +122,28 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
       setLoading(false);
     }
   };
-
   const handleSignUp = async () => {
     if (!email || !password) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
-    
     // Password validation
     if (password.length < 8) {
       Alert.alert('Password Requirements', 'Password must be at least 8 characters long');
       return;
     }
-    
     if (!/[A-Z]/.test(password)) {
       Alert.alert('Password Requirements', 'Password must contain at least one uppercase letter');
       return;
     }
-    
     if (!/[a-z]/.test(password)) {
       Alert.alert('Password Requirements', 'Password must contain at least one lowercase letter');
       return;
     }
-    
     if (!/[0-9]/.test(password)) {
       Alert.alert('Password Requirements', 'Password must contain at least one number');
       return;
     }
-    
     setLoading(true);
     try {
       const response = await fetch('https://rnbcv6rsb7.execute-api.eu-west-2.amazonaws.com/prod/auth', {
@@ -174,9 +157,7 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
           password: password
         })
       });
-
       const result = await response.json();
-      
       if (result.success) {
         Alert.alert(
           'Success', 
@@ -192,7 +173,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
       setLoading(false);
     }
   };
-
   const confirmSignUp = async (email, verificationCode) => {
     const response = await fetch(`https://cognito-idp.${CONFIG.COGNITO_REGION}.amazonaws.com/`, {
       method: 'POST',
@@ -206,13 +186,11 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
         ConfirmationCode: verificationCode
       })
     });
-
     const data = await response.json();
     if (!response.ok) {
       throw new Error(data.message || 'Verification failed');
     }
   };
-
   const resendVerificationCode = async (email) => {
     const response = await fetch(`https://cognito-idp.${CONFIG.COGNITO_REGION}.amazonaws.com/`, {
       method: 'POST',
@@ -225,14 +203,12 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
         Username: email
       })
     });
-
     const data = await response.json();
     if (!response.ok) {
       throw new Error(data.message || 'Failed to resend verification code');
     }
     return data;
   };
-
   const handleResendCode = async () => {
     setLoading(true);
     try {
@@ -244,17 +220,14 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
       setLoading(false);
     }
   };
-
   const handleVerifyCode = async () => {
     if (!verificationCode) {
       Alert.alert('Error', 'Please enter verification code');
       return;
     }
-    
     setLoading(true);
     try {
       await confirmSignUp(email, verificationCode);
-      
       // After successful verification, automatically sign in the user
       if (password) {
         // If we have the password (from recent signup), sign them in automatically
@@ -269,9 +242,7 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
             password: password
           })
         });
-
         const result = await response.json();
-        
         if (result.success) {
           onAuthSuccess(result.AuthenticationResult, email, false);
         } else {
@@ -296,13 +267,11 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
       setLoading(false);
     }
   };
-
   const handleForgotPassword = async () => {
     if (!email) {
       Alert.alert('Error', 'Please enter your email address');
       return;
     }
-    
     setLoading(true);
     try {
       const response = await fetch(`https://cognito-idp.${CONFIG.COGNITO_REGION}.amazonaws.com/`, {
@@ -316,9 +285,7 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
           Username: email
         })
       });
-
       const data = await response.json();
-      
       if (response.ok) {
         Alert.alert(
           'Success', 
@@ -334,18 +301,15 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
       setLoading(false);
     }
   };
-
   const handleResetPassword = async () => {
     if (!verificationCode || !newPassword) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
-    
     if (newPassword.length < 8) {
       Alert.alert('Error', 'Password must be at least 8 characters');
       return;
     }
-    
     setLoading(true);
     try {
       const response = await fetch(`https://cognito-idp.${CONFIG.COGNITO_REGION}.amazonaws.com/`, {
@@ -361,9 +325,7 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
           Password: newPassword
         })
       });
-
       const data = await response.json();
-      
       if (response.ok) {
         Alert.alert(
           'Success', 
@@ -379,34 +341,29 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
       setLoading(false);
     }
   };
-
   const renderWelcome = () => (
     <View style={globalStyles.welcomeContainer}>
       <Text style={[globalStyles.authTitle, fontsLoaded && { fontFamily: 'Nunito_600SemiBold' }]}>
         SpellTales
       </Text>
       <Text style={globalStyles.authSubtitle}>Magical Stories for Learning</Text>
-      
       <View style={[globalStyles.section, {width: '100%'}]}>
         <Text style={globalStyles.descriptionText}>✨ Personalised and custom bedtime stories tailored to your child's age</Text>
         <Text style={globalStyles.descriptionText}>📚 Integrate spelling words into engaging adventures</Text>
         <Text style={globalStyles.descriptionText}>👨‍👩‍👧‍👦 Create profiles for different children with age-appropriate content</Text>
         <Text style={globalStyles.descriptionText}>💾 Save and replay your favourite stories anytime</Text>
-      
         <TouchableOpacity 
           style={globalStyles.primaryButton}
           onPress={() => setMode('signin')}
         >
           <Text style={globalStyles.buttonText}>Log In</Text>
         </TouchableOpacity>
-        
         <TouchableOpacity 
           style={globalStyles.outlineButton}
           onPress={() => setMode('signup')}
         >
           <Text style={globalStyles.outlineButtonText}>Sign Up</Text>
         </TouchableOpacity>
-        
         <TouchableOpacity 
           style={globalStyles.linkButton}
           onPress={onGuestMode}
@@ -416,7 +373,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
       </View>
     </View>
   );
-
   const renderSignIn = () => (
     <View style={globalStyles.authFormContainer}>
       <View style={{width: '100%', alignItems: 'flex-start', marginBottom: 20}}>
@@ -424,11 +380,9 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
           <Text style={globalStyles.homeButtonText}>🏠 Home</Text>
         </TouchableOpacity>
       </View>
-      
       <Text style={[globalStyles.authTitle, fontsLoaded && { fontFamily: 'Nunito_600SemiBold' }]}>
         Welcome Back
       </Text>
-      
       <View style={[globalStyles.section, {width: '100%'}]}>
         <TextInput
           style={globalStyles.textInput}
@@ -439,7 +393,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
           keyboardType="email-address"
           autoCapitalize="none"
         />
-        
         <TextInput
           style={globalStyles.textInput}
           value={password}
@@ -449,7 +402,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
           secureTextEntry
           autoCapitalize="none"
         />
-        
         <TouchableOpacity 
           style={[globalStyles.primaryButton, loading && globalStyles.buttonDisabled]}
           onPress={handleSignIn}
@@ -459,7 +411,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
             {loading ? 'Signing In...' : 'Log In'}
           </Text>
         </TouchableOpacity>
-        
         {biometricAvailable && biometricEnabled && (
           <TouchableOpacity 
             style={[globalStyles.outlineButton, loading && globalStyles.buttonDisabled]}
@@ -469,7 +420,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
             <Text style={globalStyles.outlineButtonText}>🔐 Use Face ID / Touch ID</Text>
           </TouchableOpacity>
         )}
-        
         <TouchableOpacity 
           style={globalStyles.outlineButton}
           onPress={handleForgotPassword}
@@ -479,7 +429,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
       </View>
     </View>
   );
-
   const renderSignUp = () => (
     <View style={globalStyles.authFormContainer}>
       <View style={{width: '100%', alignItems: 'flex-start', marginBottom: 20}}>
@@ -487,11 +436,9 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
           <Text style={globalStyles.homeButtonText}>🏠 Home</Text>
         </TouchableOpacity>
       </View>
-      
       <Text style={[globalStyles.authTitle, fontsLoaded && { fontFamily: 'Nunito_600SemiBold' }]}>
         Create Account
       </Text>
-      
       <View style={[globalStyles.section, {width: '100%'}]}>
         <TextInput
           style={globalStyles.textInput}
@@ -502,7 +449,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
           keyboardType="email-address"
           autoCapitalize="none"
         />
-        
         <TextInput
           style={globalStyles.textInput}
           value={password}
@@ -512,11 +458,9 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
           secureTextEntry
           autoCapitalize="none"
         />
-        
         <Text style={{color: '#888', fontSize: 12, marginBottom: 15, marginTop: -10}}>
           Password must be at least 8 characters with uppercase, lowercase, and number
         </Text>
-        
         <TouchableOpacity 
           style={[globalStyles.primaryButton, loading && globalStyles.buttonDisabled]}
           onPress={handleSignUp}
@@ -529,7 +473,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
       </View>
     </View>
   );
-
   const renderVerify = () => (
     <View style={globalStyles.authFormContainer}>
       <View style={{width: '100%', alignItems: 'flex-start', marginBottom: 20}}>
@@ -537,16 +480,13 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
           <Text style={globalStyles.homeButtonText}>🏠 Home</Text>
         </TouchableOpacity>
       </View>
-      
       <Text style={[globalStyles.authTitle, fontsLoaded && { fontFamily: 'Nunito_600SemiBold' }]}>
         Verify Email
       </Text>
-      
       <View style={[globalStyles.section, {width: '100%'}]}>
         <Text style={globalStyles.welcomeText}>
           Enter the verification code sent to {email}
         </Text>
-        
         <TextInput
           style={globalStyles.textInput}
           value={verificationCode}
@@ -556,7 +496,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
           keyboardType="number-pad"
           autoCapitalize="none"
         />
-        
         <TouchableOpacity 
           style={[globalStyles.primaryButton, loading && globalStyles.buttonDisabled]}
           onPress={handleVerifyCode}
@@ -566,7 +505,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
             {loading ? 'Verifying...' : 'Verify Email'}
           </Text>
         </TouchableOpacity>
-        
         <TouchableOpacity 
           style={[globalStyles.linkButton, loading && globalStyles.buttonDisabled]}
           onPress={handleResendCode}
@@ -579,7 +517,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
       </View>
     </View>
   );
-
   const renderResetPassword = () => (
     <View style={globalStyles.authFormContainer}>
       <View style={{width: '100%', alignItems: 'flex-start', marginBottom: 20}}>
@@ -587,16 +524,13 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
           <Text style={globalStyles.homeButtonText}>🏠 Home</Text>
         </TouchableOpacity>
       </View>
-      
       <Text style={[globalStyles.authTitle, fontsLoaded && { fontFamily: 'Nunito_600SemiBold' }]}>
         Reset Password
       </Text>
-      
       <View style={[globalStyles.section, {width: '100%'}]}>
         <Text style={globalStyles.welcomeText}>
           Enter the code sent to {email} and your new password
         </Text>
-        
         <TextInput
           style={globalStyles.textInput}
           value={verificationCode}
@@ -606,7 +540,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
           keyboardType="number-pad"
           autoCapitalize="none"
         />
-        
         <TextInput
           style={globalStyles.textInput}
           value={newPassword}
@@ -616,7 +549,6 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
           secureTextEntry
           autoCapitalize="none"
         />
-        
         <TouchableOpacity 
           style={[globalStyles.primaryButton, loading && globalStyles.buttonDisabled]}
           onPress={handleResetPassword}
@@ -629,34 +561,29 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
       </View>
     </View>
   );
-
   const renderSubscription = () => (
     <View style={globalStyles.authFormContainer}>
       <Text style={[globalStyles.authTitle, fontsLoaded && { fontFamily: 'Nunito_600SemiBold' }]}>
         Welcome to SpellTales!
       </Text>
-      
       <View style={[globalStyles.section, {width: '100%'}]}>
         <Text style={globalStyles.cardTitle}>🌟 Go Premium - £2.99/month</Text>
         <Text style={globalStyles.descriptionText}>✨ Unlimited story generation</Text>
         <Text style={globalStyles.descriptionText}>🚫 No advertisements</Text>
         <Text style={globalStyles.descriptionText}>👨👩👧👦 Multiple child profiles</Text>
         <Text style={globalStyles.descriptionText}>💾 Save unlimited stories</Text>
-        
         <TouchableOpacity 
           style={globalStyles.primaryButton}
           onPress={() => setMode('signin')}
         >
           <Text style={globalStyles.buttonText}>Continue to Sign In</Text>
         </TouchableOpacity>
-        
         <Text style={globalStyles.welcomeText}>
           You can subscribe anytime from the app menu
         </Text>
       </View>
     </View>
   );
-
   return (
     <ImageBackground 
       source={require('./assets/splash_logo.png')} 
@@ -679,4 +606,3 @@ export default function AuthScreen({ onAuthSuccess, onGuestMode, darkMode = true
     </ImageBackground>
   );
 }
-

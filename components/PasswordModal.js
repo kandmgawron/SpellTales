@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Modal } from 'react-native';
 import { CONFIG } from '../config';
 import { createGlobalStyles } from '../styles/GlobalStyles';
+import { checkBiometricSupport, authenticateWithBiometrics } from '../utils/biometricAuth';
 
 export default function PasswordModal({ 
   visible, 

@@ -104,9 +104,7 @@ export const createGlobalStyles = (darkMode) => {
       color: '#ffffff',
       textAlign: 'center',
       marginBottom: 10,
-      textShadowColor: '#000',
-      textShadowOffset: { width: -1, height: -1 },
-      textShadowRadius: 1,
+      textShadow: '-1px -1px 1px #000',
     },
     
     heading: {
@@ -116,9 +114,7 @@ export const createGlobalStyles = (darkMode) => {
       marginBottom: 15,
       fontWeight: 'bold',
       textAlign: 'left',
-      textShadowColor: '#000',
-      textShadowOffset: { width: -1, height: -1 },
-      textShadowRadius: 1,
+      textShadow: '-1px -1px 1px #000',
     },
     
     cardTitle: {
@@ -380,10 +376,7 @@ export const createGlobalStyles = (darkMode) => {
       borderRadius: 10,
       padding: 10,
       minWidth: 200,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 3.84,
+      boxShadow: '0px 2px 3.84px rgba(0, 0, 0, 0.25)',
       elevation: 5,
     },
     
@@ -435,10 +428,7 @@ export const createGlobalStyles = (darkMode) => {
       borderRadius: 10,
       padding: 10,
       minWidth: 200,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 3.84,
+      boxShadow: '0px 2px 3.84px rgba(0, 0, 0, 0.25)',
       elevation: 5,
     },
     
@@ -637,9 +627,7 @@ export const createGlobalStyles = (darkMode) => {
       color: '#ffffff',
       marginBottom: 10,
       lineHeight: 24,
-      textShadowColor: '#000',
-      textShadowOffset: { width: -1, height: -1 },
-      textShadowRadius: 1,
+      textShadow: '-1px -1px 1px #000',
     },
     
     description: {
